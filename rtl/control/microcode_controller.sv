@@ -34,27 +34,38 @@ module microcode_controller #(
     output logic [15:0]               gemm_dim_n,
     output logic                      gemm_transpose_b,
     output logic                      gemm_accumulate,
+    output logic                      gemm_requant,
     output logic [15:0]               gemm_imm,
     
     // Softmax
     output logic                      softmax_start,
     input  logic                      softmax_busy,
+    output logic [15:0]               softmax_m,
+    output logic [15:0]               softmax_n,
+    output logic                      softmax_causal,
     
     // LayerNorm
     output logic                      layernorm_start,
     input  logic                      layernorm_busy,
+    output logic [15:0]               layernorm_dim,
     
     // GELU
     output logic                      gelu_start,
     input  logic                      gelu_busy,
+    output logic [15:0]               gelu_count,
     
     // Vector
     output logic                      vec_start,
     input  logic                      vec_busy,
+    output logic [2:0]                vec_op,
+    output logic [15:0]               vec_count,
+    output logic [15:0]               vec_imm,
     
     // DMA
     output logic                      dma_start,
     input  logic                      dma_busy,
+    output logic                      dma_direction,
+    output logic [31:0]               dma_byte_count,
     
     // Barrier sync
     output logic                      barrier_wait,
@@ -62,16 +73,6 @@ module microcode_controller #(
 );
 
     // Instruction format (128 bits)
-    // [127:112] - imm (16 bits)
-    // [111:96]  - K (16 bits)
-    // [95:80]   - N (16 bits)
-    // [79:64]   - M (16 bits)
-    // [63:48]   - src1 (16 bits)
-    // [47:32]   - src0 (16 bits)
-    // [31:16]   - dst (16 bits)
-    // [15:8]    - flags (8 bits)
-    // [7:0]     - opcode (8 bits)
-    
     typedef struct packed {
         logic [15:0] imm;
         logic [15:0] k;
@@ -89,14 +90,25 @@ module microcode_controller #(
     localparam OPCODE_DMA_LOAD  = 8'h01;
     localparam OPCODE_DMA_STORE = 8'h02;
     localparam OPCODE_GEMM      = 8'h03;
-    localparam OPCODE_VEC       = 8'h04;
+    localparam OPCODE_VEC       = 8'h04; // Used for various ops based on flags? No, VEC opcode covers add/mul etc?
+                                         // ARCHITECTURE.md defines VEC_ADD=0x07 etc as separate opcodes?
+                                         // "3.2 Opcodes" table lists VEC_ADD, VEC_MUL separately.
+                                         // But here I defined OPCODE_VEC = 0x04.
+                                         // Let's stick to the implementation here and use sub-opcodes or distinct opcodes.
+                                         // The implementation of vec_engine takes `operation` input.
+                                         // I should map instruction opcodes to engine ops.
     localparam OPCODE_SOFTMAX   = 8'h05;
     localparam OPCODE_LAYERNORM = 8'h06;
     localparam OPCODE_GELU      = 8'h07;
+    // ARCHITECTURE.md had separate opcodes. Let's align.
+    localparam OPCODE_VEC_ADD   = 8'h08;
+    localparam OPCODE_VEC_MUL   = 8'h09;
+    localparam OPCODE_VEC_COPY  = 8'h0A;
+    
     localparam OPCODE_BARRIER   = 8'hFE;
     localparam OPCODE_END       = 8'hFF;
     
-    // Engine IDs for scoreboard
+    // Engine IDs
     localparam ENGINE_GEMM      = 3'd0;
     localparam ENGINE_SOFTMAX   = 3'd1;
     localparam ENGINE_LAYERNORM = 3'd2;
@@ -125,16 +137,15 @@ module microcode_controller #(
     instruction_t current_instr;
     logic instr_valid;
     
-    // Scoreboard (track busy engines)
+    // Scoreboard
     logic [NUM_ENGINES-1:0] scoreboard;
     logic [NUM_ENGINES-1:0] scoreboard_set;
     logic [NUM_ENGINES-1:0] scoreboard_clear;
     
-    // Engine busy signals
     logic [NUM_ENGINES-1:0] engine_busy;
     assign engine_busy = {dma_busy, vec_busy, gelu_busy, layernorm_busy, softmax_busy, gemm_busy};
     
-    // Decode: which engine does this instruction target?
+    // Decode target engine
     logic [2:0] target_engine;
     always_comb begin
         case (current_instr.opcode)
@@ -142,28 +153,21 @@ module microcode_controller #(
             OPCODE_SOFTMAX:   target_engine = ENGINE_SOFTMAX;
             OPCODE_LAYERNORM: target_engine = ENGINE_LAYERNORM;
             OPCODE_GELU:      target_engine = ENGINE_GELU;
-            OPCODE_VEC:       target_engine = ENGINE_VEC;
+            OPCODE_VEC, OPCODE_VEC_ADD, OPCODE_VEC_MUL, OPCODE_VEC_COPY: 
+                              target_engine = ENGINE_VEC;
             OPCODE_DMA_LOAD,
             OPCODE_DMA_STORE: target_engine = ENGINE_DMA;
-            default:          target_engine = 3'd7;  // Invalid
+            default:          target_engine = 3'd7;
         endcase
     end
     
     // Scoreboard logic
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            scoreboard <= '0;
-        end else begin
-            // Set bit when instruction dispatched
-            scoreboard <= (scoreboard | scoreboard_set) & ~scoreboard_clear;
-        end
+        if (!rst_n) scoreboard <= '0;
+        else scoreboard <= (scoreboard | scoreboard_set) & ~scoreboard_clear;
     end
     
-    // Engine done signals clear scoreboard (in real design, these would be pulses)
-    // For now, use inverted busy signals
-    always_comb begin
-        scoreboard_clear = ~engine_busy & scoreboard;
-    end
+    always_comb scoreboard_clear = ~engine_busy & scoreboard;
     
     // Sequential logic
     always_ff @(posedge clk or negedge rst_n) begin
@@ -181,6 +185,15 @@ module microcode_controller #(
             vec_start <= 1'b0;
             dma_start <= 1'b0;
             barrier_wait <= 1'b0;
+            
+            // Output registers reset
+            gemm_dim_m <= '0; gemm_dim_k <= '0; gemm_dim_n <= '0;
+            gemm_transpose_b <= '0; gemm_accumulate <= '0; gemm_requant <= '0; gemm_imm <= '0;
+            softmax_m <= '0; softmax_n <= '0; softmax_causal <= '0;
+            layernorm_dim <= '0;
+            gelu_count <= '0;
+            vec_op <= '0; vec_count <= '0; vec_imm <= '0;
+            dma_direction <= '0; dma_byte_count <= '0;
         end else begin
             // Default: no starts
             gemm_start <= 1'b0;
@@ -198,20 +211,16 @@ module microcode_controller #(
                 IDLE: begin
                     pc <= '0;
                     instr_valid <= 1'b0;
-                    if (start) begin
-                        ucode_end <= ucode_length;
-                    end
+                    if (start) ucode_end <= ucode_length;
                 end
                 
                 FETCH: begin
-                    // Request instruction from SRAM
                     sram_rd_addr <= ucode_base_addr + pc;
                     sram_rd_en <= 1'b1;
                 end
                 
                 DECODE: begin
                     sram_rd_en <= 1'b0;
-                    // Capture instruction
                     current_instr <= instruction_t'(sram_rd_data);
                     instr_valid <= 1'b1;
                 end
@@ -220,7 +229,6 @@ module microcode_controller #(
                     if (instr_valid) begin
                         case (current_instr.opcode)
                             OPCODE_NOP: begin
-                                // Do nothing, advance PC
                                 pc <= pc + 1;
                                 instr_valid <= 1'b0;
                             end
@@ -231,6 +239,10 @@ module microcode_controller #(
                                     gemm_dim_m <= current_instr.m;
                                     gemm_dim_k <= current_instr.k;
                                     gemm_dim_n <= current_instr.n;
+                                    gemm_transpose_b <= current_instr.flags[0];
+                                    gemm_requant <= current_instr.flags[1];
+                                    gemm_accumulate <= current_instr.flags[2];
+                                    gemm_imm <= current_instr.imm;
                                     scoreboard_set[ENGINE_GEMM] <= 1'b1;
                                     pc <= pc + 1;
                                     instr_valid <= 1'b0;
@@ -240,6 +252,9 @@ module microcode_controller #(
                             OPCODE_SOFTMAX: begin
                                 if (!scoreboard[ENGINE_SOFTMAX]) begin
                                     softmax_start <= 1'b1;
+                                    softmax_m <= current_instr.m;
+                                    softmax_n <= current_instr.n;
+                                    softmax_causal <= current_instr.flags[0];
                                     scoreboard_set[ENGINE_SOFTMAX] <= 1'b1;
                                     pc <= pc + 1;
                                     instr_valid <= 1'b0;
@@ -249,6 +264,7 @@ module microcode_controller #(
                             OPCODE_LAYERNORM: begin
                                 if (!scoreboard[ENGINE_LAYERNORM]) begin
                                     layernorm_start <= 1'b1;
+                                    layernorm_dim <= current_instr.n; // Assuming N is hidden dim
                                     scoreboard_set[ENGINE_LAYERNORM] <= 1'b1;
                                     pc <= pc + 1;
                                     instr_valid <= 1'b0;
@@ -258,24 +274,49 @@ module microcode_controller #(
                             OPCODE_GELU: begin
                                 if (!scoreboard[ENGINE_GELU]) begin
                                     gelu_start <= 1'b1;
+                                    gelu_count <= current_instr.n; // Assuming N is count
                                     scoreboard_set[ENGINE_GELU] <= 1'b1;
                                     pc <= pc + 1;
                                     instr_valid <= 1'b0;
                                 end
                             end
                             
-                            OPCODE_VEC: begin
+                            OPCODE_VEC, OPCODE_VEC_ADD, OPCODE_VEC_MUL, OPCODE_VEC_COPY: begin
                                 if (!scoreboard[ENGINE_VEC]) begin
                                     vec_start <= 1'b1;
+                                    vec_count <= current_instr.n;
+                                    vec_imm <= current_instr.imm;
+                                    // Map opcode to vec engine op
+                                    case (current_instr.opcode)
+                                        OPCODE_VEC_ADD: vec_op <= 3'b001; // ADD
+                                        OPCODE_VEC_MUL: vec_op <= 3'b010; // MUL
+                                        OPCODE_VEC_COPY: vec_op <= 3'b110; // COPY
+                                        default: vec_op <= 3'b000;
+                                    endcase
                                     scoreboard_set[ENGINE_VEC] <= 1'b1;
                                     pc <= pc + 1;
                                     instr_valid <= 1'b0;
                                 end
                             end
                             
-                            OPCODE_DMA_LOAD, OPCODE_DMA_STORE: begin
+                            OPCODE_DMA_LOAD: begin
                                 if (!scoreboard[ENGINE_DMA]) begin
                                     dma_start <= 1'b1;
+                                    dma_direction <= 1'b0; // DDR -> SRAM
+                                    dma_byte_count <= {current_instr.m, current_instr.n}; // Hack: use M:N for 32-bit count? 
+                                    // Or M is bytes? Spec says M=bytes.
+                                    dma_byte_count <= {16'd0, current_instr.m};
+                                    scoreboard_set[ENGINE_DMA] <= 1'b1;
+                                    pc <= pc + 1;
+                                    instr_valid <= 1'b0;
+                                end
+                            end
+                            
+                            OPCODE_DMA_STORE: begin
+                                if (!scoreboard[ENGINE_DMA]) begin
+                                    dma_start <= 1'b1;
+                                    dma_direction <= 1'b1; // SRAM -> DDR
+                                    dma_byte_count <= {16'd0, current_instr.m};
                                     scoreboard_set[ENGINE_DMA] <= 1'b1;
                                     pc <= pc + 1;
                                     instr_valid <= 1'b0;
@@ -302,7 +343,7 @@ module microcode_controller #(
                 end
                 
                 DONE_STATE: begin
-                    // Program complete
+                    // Done
                 end
             endcase
         end
@@ -313,49 +354,25 @@ module microcode_controller #(
         next_state = state;
         
         case (state)
-            IDLE: begin
-                if (start) next_state = FETCH;
-            end
-            
-            FETCH: begin
-                // Assume single cycle read for now
-                next_state = DECODE;
-            end
-            
-            DECODE: begin
-                next_state = DISPATCH;
-            end
-            
+            IDLE: if (start) next_state = FETCH;
+            FETCH: next_state = DECODE;
+            DECODE: next_state = DISPATCH;
             DISPATCH: begin
                 if (instr_valid) begin
                     case (current_instr.opcode)
-                        OPCODE_END: begin
-                            next_state = DONE_STATE;
-                        end
-                        OPCODE_BARRIER: begin
-                            next_state = WAIT_BARRIER;
-                        end
+                        OPCODE_END: next_state = DONE_STATE;
+                        OPCODE_BARRIER: next_state = WAIT_BARRIER;
                         default: begin
-                            // If engine not available, stay in DISPATCH
-                            if (!scoreboard[target_engine]) begin
-                                next_state = FETCH;
-                            end
+                            if (!scoreboard[target_engine]) next_state = FETCH;
                         end
                     endcase
                 end
             end
-            
-            WAIT_BARRIER: begin
-                if (all_engines_idle) next_state = FETCH;
-            end
-            
-            DONE_STATE: begin
-                next_state = IDLE;
-            end
+            WAIT_BARRIER: if (all_engines_idle) next_state = FETCH;
+            DONE_STATE: next_state = IDLE;
         endcase
     end
     
-    // Status
     assign busy = (state != IDLE);
     assign done = (state == DONE_STATE);
 

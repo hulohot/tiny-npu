@@ -23,9 +23,10 @@ set(ENGINES_DIR ${RTL_DIR}/engines)
 set(MEM_DIR ${RTL_DIR}/memory)
 set(CTRL_DIR ${RTL_DIR}/control)
 
-# Common Verilator Args
+# Common Verilator Args - single threaded for now
 set(VERILATOR_COMMON_ARGS 
     --trace 
+    --threads 1
     -Wno-fatal 
     -Wno-WIDTHTRUNC 
     -Wno-WIDTHEXPAND 

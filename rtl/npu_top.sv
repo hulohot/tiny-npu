@@ -79,7 +79,7 @@ module npu_top #(
     logic controller_busy;
     logic controller_done;
     
-    // Engine control signals (from controller)
+    // Engine control signals
     logic gemm_start, gemm_busy, gemm_done;
     logic softmax_start, softmax_busy, softmax_done;
     logic layernorm_start, layernorm_busy, layernorm_done;
@@ -87,8 +87,23 @@ module npu_top #(
     logic vec_start, vec_busy, vec_done;
     logic dma_start, dma_busy, dma_done;
     
-    // GEMM config
+    // Engine configuration signals
     logic [15:0] gemm_dim_m, gemm_dim_k, gemm_dim_n;
+    logic gemm_transpose_b, gemm_accumulate, gemm_requant;
+    logic [15:0] gemm_imm;
+    
+    logic softmax_causal;
+    logic [15:0] softmax_m, softmax_n;
+    
+    logic [15:0] layernorm_dim;
+    logic [15:0] gelu_count;
+    
+    logic [2:0] vec_op;
+    logic [15:0] vec_count;
+    logic [15:0] vec_imm;
+    
+    logic dma_direction;
+    logic [31:0] dma_byte_count;
     
     // SRAM interfaces
     // GEMM
@@ -186,7 +201,6 @@ module npu_top #(
     end
     assign start_pulse = ctrl_reg[0] && !start_r && !busy;
     
-    // Status outputs
     assign busy = controller_busy;
     assign done = controller_done;
     
@@ -204,21 +218,42 @@ module npu_top #(
         .sram_rd_addr(ucode_rd_addr),
         .sram_rd_data(ucode_rd_data),
         .sram_rd_en(ucode_rd_en),
+        
         .gemm_start(gemm_start),
         .gemm_busy(gemm_busy),
         .gemm_dim_m(gemm_dim_m),
         .gemm_dim_k(gemm_dim_k),
         .gemm_dim_n(gemm_dim_n),
+        .gemm_transpose_b(gemm_transpose_b),
+        .gemm_accumulate(gemm_accumulate),
+        .gemm_requant(gemm_requant),
+        .gemm_imm(gemm_imm),
+        
         .softmax_start(softmax_start),
         .softmax_busy(softmax_busy),
+        .softmax_m(softmax_m),
+        .softmax_n(softmax_n),
+        .softmax_causal(softmax_causal),
+        
         .layernorm_start(layernorm_start),
         .layernorm_busy(layernorm_busy),
+        .layernorm_dim(layernorm_dim),
+        
         .gelu_start(gelu_start),
         .gelu_busy(gelu_busy),
+        .gelu_count(gelu_count),
+        
         .vec_start(vec_start),
         .vec_busy(vec_busy),
+        .vec_op(vec_op),
+        .vec_count(vec_count),
+        .vec_imm(vec_imm),
+        
         .dma_start(dma_start),
         .dma_busy(dma_busy),
+        .dma_direction(dma_direction),
+        .dma_byte_count(dma_byte_count),
+        
         .barrier_wait(),
         .all_engines_idle(!gemm_busy && !softmax_busy && !layernorm_busy && 
                           !gelu_busy && !vec_busy && !dma_busy)
@@ -284,17 +319,17 @@ module npu_top #(
         .start(gemm_start),
         .busy(gemm_busy),
         .done(gemm_done),
-        .src_a_addr('0), // TODO: Wire from controller
+        .src_a_addr('0), // TODO: Wire from controller instr
         .src_b_addr('0),
         .dst_addr('0),
         .dim_m(gemm_dim_m),
         .dim_k(gemm_dim_k),
         .dim_n(gemm_dim_n),
-        .transpose_b(1'b0),
-        .accumulate(1'b0),
-        .scale(8'd1),
-        .shift(8'd0),
-        .requant_en(1'b0),
+        .transpose_b(gemm_transpose_b),
+        .accumulate(gemm_accumulate),
+        .scale(gemm_imm[15:8]),
+        .shift(gemm_imm[7:0]),
+        .requant_en(gemm_requant),
         .sram_rd_addr(gemm_rd_addr),
         .sram_rd_data(gemm_rd_data),
         .sram_rd_en(gemm_rd_en),
@@ -312,10 +347,10 @@ module npu_top #(
         .start(dma_start),
         .busy(dma_busy),
         .done(dma_done),
-        .direction(1'b0), // TODO: From controller
-        .ddr_addr('0),
+        .direction(dma_direction),
+        .ddr_addr('0), // TODO: from instr
         .sram_addr('0),
-        .byte_count('0),
+        .byte_count(dma_byte_count),
         .m_axi_araddr(m_axi_araddr),
         .m_axi_arlen(m_axi_arlen),
         .m_axi_arsize(m_axi_arsize),
@@ -341,15 +376,14 @@ module npu_top #(
         .m_axi_bresp(m_axi_bresp),
         .m_axi_bvalid(m_axi_bvalid),
         .m_axi_bready(m_axi_bready),
-        .sram_addr_out(dma_rd_addr), // Shared rd/wr port on engine side
+        .sram_addr_out(dma_rd_addr), // Shared rd/wr port
         .sram_wdata(dma_wr_data),
         .sram_we(dma_wr_en),
         .sram_re(dma_rd_en),
         .sram_rdata(dma_rd_data)
     );
     
-    // TODO: Connect Softmax, LayerNorm, GELU, Vec engines
-    // Placeholders for now to allow synthesis
+    // Placeholders for other engines until fully implemented
     assign softmax_busy = 1'b0;
     assign softmax_done = 1'b0;
     assign layernorm_busy = 1'b0;
@@ -392,21 +426,13 @@ module npu_regs (
     input  logic        done
 );
     // Simple register implementation
-    // 0x00: CTRL
-    // 0x04: STATUS
-    // 0x08: UCODE_BASE
-    // 0x0C: UCODE_LEN
-    // 0x14: DDR_BASE_WGT
-    // 0x38: EXEC_MODE
-    
     logic [31:0] regs [0:15];
     
-    // Write logic
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             for (int i=0; i<16; i++) regs[i] <= '0;
         end else if (s_axi_awvalid && s_axi_wvalid && s_axi_awready && s_axi_wready) begin
-            regs[s_axi_awaddr[5:2]] <= s_axi_wdata; // Simple decoding
+            regs[s_axi_awaddr[5:2]] <= s_axi_wdata;
         end
     end
     
@@ -416,10 +442,8 @@ module npu_regs (
     assign ddr_base_wgt_reg = regs[5];
     assign exec_mode_reg = regs[14];
     
-    // Status reg is read-only from logic, not written by AXI
     assign status_reg = {30'd0, done, busy};
     
-    // AXI handshake
     assign s_axi_awready = 1'b1;
     assign s_axi_wready = 1'b1;
     assign s_axi_bresp = 2'b00;

@@ -132,17 +132,17 @@ module gemm_engine #(
     end
     
     // Calculate number of tiles needed
-    assign tiles_m = (dim_m + ARRAY_SIZE - 1) / ARRAY_SIZE;
-    assign tiles_n = (dim_n + ARRAY_SIZE - 1) / ARRAY_SIZE;
-    assign tiles_k = (dim_k + ARRAY_SIZE - 1) / ARRAY_SIZE;
+    assign tiles_m = 13'((dim_m + ARRAY_SIZE - 1) / ARRAY_SIZE);
+    assign tiles_n = 13'((dim_n + ARRAY_SIZE - 1) / ARRAY_SIZE);
+    assign tiles_k = 13'((dim_k + ARRAY_SIZE - 1) / ARRAY_SIZE);
     
     // Current tile sizes (handle edge cases)
     assign tile_size_m = (tile_m == tiles_m - 1 && dim_m % ARRAY_SIZE != 0) ? 
-                         (dim_m % ARRAY_SIZE) : ARRAY_SIZE;
+                         5'(dim_m % ARRAY_SIZE) : 5'(ARRAY_SIZE);
     assign tile_size_n = (tile_n == tiles_n - 1 && dim_n % ARRAY_SIZE != 0) ? 
-                         (dim_n % ARRAY_SIZE) : ARRAY_SIZE;
+                         5'(dim_n % ARRAY_SIZE) : 5'(ARRAY_SIZE);
     assign tile_size_k = (tile_k == tiles_k - 1 && dim_k % ARRAY_SIZE != 0) ? 
-                         (dim_k % ARRAY_SIZE) : ARRAY_SIZE;
+                         5'(dim_k % ARRAY_SIZE) : 5'(ARRAY_SIZE);
     
     // State machine combinational logic
     always_comb begin
@@ -165,7 +165,7 @@ module gemm_engine #(
             
             COMPUTE_TILE: begin
                 // Computation takes tile_size_m + tile_size_k + tile_size_n cycles
-                if (compute_cycles >= tile_size_m + tile_size_k + tile_size_n + 4) begin
+                if (compute_cycles >= 16'(tile_size_m) + 16'(tile_size_k) + 16'(tile_size_n) + 16'd4) begin
                     if (tile_k < tiles_k - 1) begin
                         // More K tiles to accumulate
                         next_state = NEXT_TILE;

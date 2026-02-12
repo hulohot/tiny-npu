@@ -51,7 +51,7 @@ module mac_unit #(
     assign mult_result = signed'(activation_in) * signed'(weight_reg);
     
     // Sign-extend to accumulator width
-    assign mult_extended = signed'(mult_result);
+    assign mult_extended = {{ACC_WIDTH-(2*DATA_WIDTH){mult_result[2*DATA_WIDTH-1]}}, mult_result};
     
     // Accumulation
     always_ff @(posedge clk or negedge rst_n) begin

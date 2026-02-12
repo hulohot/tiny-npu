@@ -36,11 +36,17 @@ module gelu_engine #(
     
     // Initialize LUT
     initial begin
+        // Local variables for computation
+        int signed_val;
+        real x, gelu_val;
+        real sqrt_2_over_pi;
+        real coeff;
+        real inner;
+        real tanh_val;
+        real exp_pos, exp_neg;
+        
         for (int i = 0; i < 256; i++) begin
             // Convert to signed value
-            int signed_val;
-            real x, gelu_val;
-            
             if (i < 128) begin
                 signed_val = i;  // 0 to 127
             end else begin
@@ -50,11 +56,12 @@ module gelu_engine #(
             x = signed_val;
             
             // GELU approximation using tanh
-            // GELU(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-            real sqrt_2_over_pi = 0.7978845608;
-            real coeff = 0.044715;
-            real inner = sqrt_2_over_pi * (x + coeff * x * x * x);
-            real tanh_val = (exp(inner) - exp(-inner)) / (exp(inner) + exp(-inner));
+            sqrt_2_over_pi = 0.7978845608;
+            coeff = 0.044715;
+            inner = sqrt_2_over_pi * (x + coeff * x * x * x);
+            exp_pos = $exp(inner);
+            exp_neg = $exp(-inner);
+            tanh_val = (exp_pos - exp_neg) / (exp_pos + exp_neg);
             gelu_val = 0.5 * x * (1.0 + tanh_val);
             
             // Clamp and convert back to INT8
@@ -102,6 +109,7 @@ module gelu_engine #(
             result_valid_reg <= 1'b0;
         end else begin
             state <= next_state;
+            out_valid <= 1'b0;
             
             case (state)
                 IDLE: begin
@@ -111,6 +119,10 @@ module gelu_engine #(
                     rd_ptr <= '0;
                     fifo_count <= '0;
                     result_valid_reg <= 1'b0;
+                    
+                    if (start) begin
+                        // Ready to start
+                    end
                 end
                 
                 PROCESSING: begin

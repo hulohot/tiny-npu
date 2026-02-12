@@ -32,6 +32,9 @@ module microcode_controller #(
     output logic [15:0]               gemm_dim_m,
     output logic [15:0]               gemm_dim_k,
     output logic [15:0]               gemm_dim_n,
+    output logic                      gemm_transpose_b,
+    output logic                      gemm_accumulate,
+    output logic [15:0]               gemm_imm,
     
     // Softmax
     output logic                      softmax_start,
@@ -355,6 +358,5 @@ module microcode_controller #(
     // Status
     assign busy = (state != IDLE);
     assign done = (state == DONE_STATE);
-    assign all_engines_idle = (scoreboard == '0);
 
 endmodule

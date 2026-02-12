@@ -1,27 +1,24 @@
 {
   "name": "Tiny NPU Dev Environment",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
+  "image": "mcr.microsoft.com/devcontainers/cpp:ubuntu-22.04",
   "features": {
     "ghcr.io/devcontainers/features/python:1": {
       "version": "3.11"
     },
-    "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/cmake:1": {},
-    "ghcr.io/devcontainers/features/git:1": {}
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y build-essential verilator python3-pip && pip3 install numpy transformers huggingface_hub safetensors onnx",
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y cmake verilator python3-pip && pip3 install numpy",
+  "postStartCommand": "cmake --version && verilator --version",
   "customizations": {
     "vscode": {
       "extensions": [
         "mshr-h.veriloghdl",
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "GitHub.copilot",
-        "GitHub.copilot-chat"
+        "GitHub.copilot"
       ],
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash",
-        "python.defaultInterpreterPath": "/usr/local/bin/python"
+        "terminal.integrated.defaultProfile.linux": "bash"
       }
     }
   },

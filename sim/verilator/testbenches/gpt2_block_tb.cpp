@@ -2,7 +2,7 @@
 #include <vector>
 #include <iomanip>
 #include <verilated.h>
-#include "Vnpu_top.h"
+#include "Vnpu_block.h"
 #include "common/npu_utils.h"
 
 int main(int argc, char** argv) {
@@ -35,7 +35,7 @@ int main(int argc, char** argv) {
     
     std::cout << "Generated sram0_init.hex with " << ucode.size() << " instructions." << std::endl;
 
-    Vnpu_top* top = new Vnpu_top;
+    Vnpu_block* top = new Vnpu_block;
 
     std::cout << "=== GPT-2 Block Test ===" << std::endl;
 

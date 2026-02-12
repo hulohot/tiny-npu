@@ -23,18 +23,19 @@ set(ENGINES_DIR ${RTL_DIR}/engines)
 set(MEM_DIR ${RTL_DIR}/memory)
 set(CTRL_DIR ${RTL_DIR}/control)
 
-# Common Verilator Args - single threaded for now
+# Common Verilator Args
 set(VERILATOR_COMMON_ARGS 
     --trace 
-    --threads 1
     -Wno-fatal 
+    -Wno-WIDTH 
+    -Wno-PINMISSING 
     -Wno-WIDTHTRUNC 
     -Wno-WIDTHEXPAND 
     -Wno-CASEINCOMPLETE
 )
 
 # =============================================================================
-# UNIT TESTS - Individual modules
+# UNIT TESTS
 # =============================================================================
 
 # MAC Unit Test
@@ -47,10 +48,6 @@ verilate(test_mac_unit
     PREFIX Vmac_unit
     VERILATOR_ARGS ${VERILATOR_COMMON_ARGS}
 )
-
-# =============================================================================
-# ENGINE TESTS - Full engines
-# =============================================================================
 
 # Systolic Array Test
 add_executable(test_systolic_array
@@ -67,7 +64,6 @@ verilate(test_systolic_array
 # TOP-LEVEL TESTS
 # =============================================================================
 
-# RTL sources for full NPU
 set(RTL_SOURCES
     ${RTL_DIR}/npu_top.sv
     ${GEMM_DIR}/mac_unit.sv
@@ -83,40 +79,36 @@ set(RTL_SOURCES
 )
 
 # NPU smoke test
-add_executable(npu_sim
+add_executable(test_npu_smoke
     ${TESTBENCH_DIR}/npu_tb.cpp
 )
-verilate(npu_sim
+verilate(test_npu_smoke
     SOURCES ${RTL_SOURCES}
     TOP_MODULE npu_top
-    PREFIX Vnpu_top
+    PREFIX Vnpu_smoke
     VERILATOR_ARGS ${VERILATOR_COMMON_ARGS}
 )
 
 # Integration test
-add_executable(integration_sim
+add_executable(test_integration
     ${TESTBENCH_DIR}/integration_tb.cpp
 )
-verilate(integration_sim
+verilate(test_integration
     SOURCES ${RTL_SOURCES}
     TOP_MODULE npu_top
-    PREFIX Vnpu_top_int
+    PREFIX Vnpu_integration
     VERILATOR_ARGS ${VERILATOR_COMMON_ARGS}
 )
 
-# Engine tests placeholder
-add_executable(engine_sim
-    ${TESTBENCH_DIR}/engine_tb.cpp
-)
-
-# GPT-2 block test placeholder
-add_executable(gpt2_block_sim
+# GPT-2 block test
+add_executable(test_gpt2_block
     ${TESTBENCH_DIR}/gpt2_block_tb.cpp
 )
-
-# Demo inference placeholder
-add_executable(demo_infer
-    ${TESTBENCH_DIR}/demo_infer.cpp
+verilate(test_gpt2_block
+    SOURCES ${RTL_SOURCES}
+    TOP_MODULE npu_top
+    PREFIX Vnpu_block
+    VERILATOR_ARGS ${VERILATOR_COMMON_ARGS}
 )
 
 # =============================================================================
@@ -126,16 +118,6 @@ add_executable(demo_infer
 enable_testing()
 add_test(NAME MAC_Unit COMMAND test_mac_unit)
 add_test(NAME Systolic_Array COMMAND test_systolic_array)
-add_test(NAME NPU_Smoke COMMAND npu_sim)
-add_test(NAME Integration COMMAND integration_sim)
-
-# Print status
-message(STATUS "Tiny NPU build configuration:")
-message(STATUS "  Verilator: ${VERILATOR_ROOT}")
-message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "")
-message(STATUS "Tests:")
-message(STATUS "  test_mac_unit       - MAC unit tests")
-message(STATUS "  test_systolic_array - Systolic array tests")
-message(STATUS "  npu_sim             - Top-level smoke test")
-message(STATUS "  integration_sim     - Full integration test")
+add_test(NAME NPU_Smoke COMMAND test_npu_smoke)
+add_test(NAME Integration COMMAND test_integration)
+add_test(NAME GPT2_Block COMMAND test_gpt2_block)

@@ -12,6 +12,14 @@ int32_t golden_mac(int8_t a, int8_t w, int32_t partial) {
     return partial + (int32_t)a * (int32_t)w;
 }
 
+// Advance one clock cycle
+void tick(Vmac_unit* mac) {
+    mac->clk = !mac->clk;
+    mac->eval();
+    mac->clk = !mac->clk;
+    mac->eval();
+}
+
 void test_mac_basic() {
     std::cout << "Test: MAC basic operation..." << std::endl;
     
@@ -27,34 +35,27 @@ void test_mac_basic() {
     mac->weight_in = 0;
     mac->partial_sum_in = 0;
     
-    // Reset
-    for (int i = 0; i < 5; i++) {
-        mac->clk = !mac->clk;
-        mac->eval();
-    }
+    // Reset (5 cycles)
+    for (int i = 0; i < 5; i++) tick(mac);
     mac->rst_n = 1;
-    mac->clk = !mac->clk;
-    mac->eval();
+    tick(mac);
     
-    // Load weight
+    // Load weight (takes effect next cycle, output 1 cycle after)
     mac->load_weight = 1;
     mac->weight_in = 5;
-    mac->clk = !mac->clk;
-    mac->eval();
-    mac->clk = !mac->clk;
-    mac->eval();
+    tick(mac);
     mac->load_weight = 0;
+    tick(mac);  // weight loaded into reg
     
-    // Test accumulation
+    // Setup inputs
     mac->en = 1;
     mac->activation_in = 3;
     mac->partial_sum_in = 10;
     
-    // Need 2 cycles for result (1 for mult/accum, 1 for output reg)
-    mac->clk = !mac->clk;
-    mac->eval();
-    mac->clk = !mac->clk;
-    mac->eval();
+    // Pipeline: mult -> accum -> output_reg
+    tick(mac);  // mult happens
+    tick(mac);  // accum happens, partial_sum_out updates
+    tick(mac);  // output register updates
     
     int32_t expected = golden_mac(3, 5, 10);  // 10 + 3*5 = 25
     
@@ -77,35 +78,32 @@ void test_mac_clear() {
     // Initialize and reset
     mac->clk = 0;
     mac->rst_n = 0;
-    mac->en = 0;
-    mac->clr = 0;
-    for (int i = 0; i < 5; i++) {
-        mac->clk = !mac->clk;
-        mac->eval();
-    }
+    for (int i = 0; i < 5; i++) tick(mac);
     mac->rst_n = 1;
     
-    // Load weight and accumulate
+    // Load weight
     mac->load_weight = 1;
     mac->weight_in = 10;
-    mac->clk = !mac->clk; mac->eval();
-    mac->clk = !mac->clk; mac->eval();
+    tick(mac);
     mac->load_weight = 0;
+    tick(mac);
     
+    // Accumulate
     mac->en = 1;
     mac->activation_in = 2;
     mac->partial_sum_in = 0;
-    mac->clk = !mac->clk; mac->eval();
-    mac->clk = !mac->clk; mac->eval();
-    // Result: 0 + 2*10 = 20
+    tick(mac);
+    tick(mac);
+    tick(mac);
+    // Result should be 20
     
-    // Clear accumulator
+    // Clear
     mac->clr = 1;
     mac->en = 0;
-    mac->partial_sum_in = 100;  // Should be ignored when clr=1
-    mac->clk = !mac->clk; mac->eval();
-    mac->clk = !mac->clk; mac->eval();
+    mac->partial_sum_in = 100;  // Should be ignored
+    tick(mac);
     mac->clr = 0;
+    tick(mac);  // Output register updates
     
     std::cout << "  After clear, partial_sum should be 0" << std::endl;
     std::cout << "  Got: " << (int32_t)mac->partial_sum_out << std::endl;
@@ -125,27 +123,23 @@ void test_mac_negative() {
     // Initialize and reset
     mac->clk = 0;
     mac->rst_n = 0;
-    mac->en = 0;
-    mac->clr = 0;
-    for (int i = 0; i < 5; i++) {
-        mac->clk = !mac->clk;
-        mac->eval();
-    }
+    for (int i = 0; i < 5; i++) tick(mac);
     mac->rst_n = 1;
     
-    // Load negative weight
+    // Load negative weight (-5)
     mac->load_weight = 1;
-    mac->weight_in = (uint8_t)(-5);  // -5 in two's complement
-    mac->clk = !mac->clk; mac->eval();
-    mac->clk = !mac->clk; mac->eval();
+    mac->weight_in = (uint8_t)(-5);  // 0xFB = -5
+    tick(mac);
     mac->load_weight = 0;
+    tick(mac);
     
-    // Multiply with positive activation
+    // Multiply
     mac->en = 1;
     mac->activation_in = 3;
     mac->partial_sum_in = 10;
-    mac->clk = !mac->clk; mac->eval();
-    mac->clk = !mac->clk; mac->eval();
+    tick(mac);
+    tick(mac);
+    tick(mac);
     
     int32_t expected = golden_mac(3, -5, 10);  // 10 + 3*(-5) = -5
     
@@ -168,51 +162,48 @@ void test_mac_pipeline() {
     // Initialize and reset
     mac->clk = 0;
     mac->rst_n = 0;
-    for (int i = 0; i < 5; i++) {
-        mac->clk = !mac->clk;
-        mac->eval();
-    }
+    for (int i = 0; i < 5; i++) tick(mac);
     mac->rst_n = 1;
-    mac->clr = 0;
+    tick(mac);
     
     // Load weight
     mac->load_weight = 1;
     mac->weight_in = 2;
-    mac->clk = !mac->clk; mac->eval();
-    mac->clk = !mac->clk; mac->eval();
+    tick(mac);
     mac->load_weight = 0;
+    tick(mac);
     
     // Stream multiple activations through
     int8_t activations[] = {1, 2, 3, 4, 5};
     int32_t partial = 0;
+    int32_t expected_results[5];
     
-    for (int i = 0; i < 5; i++) {
-        mac->en = 1;
+    // First input
+    mac->en = 1;
+    mac->activation_in = activations[0];
+    mac->partial_sum_in = partial;
+    tick(mac);
+    partial = golden_mac(activations[0], 2, partial);
+    expected_results[0] = partial;
+    
+    // Continue with remaining inputs
+    for (int i = 1; i < 5; i++) {
         mac->activation_in = activations[i];
         mac->partial_sum_in = partial;
-        
-        mac->clk = !mac->clk; mac->eval();
-        mac->clk = !mac->clk; mac->eval();
-        
+        tick(mac);
         partial = golden_mac(activations[i], 2, partial);
-        
-        if (i >= 1) {  // Pipeline fill delay
-            std::cout << "  Cycle " << i << ": expected=" << partial 
-                      << " got=" << (int32_t)mac->partial_sum_out << std::endl;
-        }
+        expected_results[i] = partial;
     }
     
-    // Final check
+    // Flush pipeline (2 more cycles for output)
     mac->en = 0;
-    mac->activation_in = 0;
-    mac->partial_sum_in = 0;
-    mac->clk = !mac->clk; mac->eval();
-    mac->clk = !mac->clk; mac->eval();
+    tick(mac);
+    tick(mac);
     
-    // Expected: 0 + 2*(1+2+3+4+5) = 30
     std::cout << "  Final accumulator: " << (int32_t)mac->partial_sum_out << std::endl;
     std::cout << "  Expected: 30" << std::endl;
     
+    // Expected: 0 + 2*(1+2+3+4+5) = 30
     assert(mac->partial_sum_out == 30);
     std::cout << "  PASSED" << std::endl;
     

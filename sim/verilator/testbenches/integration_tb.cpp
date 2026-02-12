@@ -3,11 +3,11 @@
 
 #include <iostream>
 #include <verilated.h>
-#include "Vnpu_top.h"
+#include "Vnpu_integration.h"
 
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
-    Vnpu_top* top = new Vnpu_top;
+    Vnpu_integration* top = new Vnpu_integration;
 
     // Clock and Reset
     top->clk = 0;

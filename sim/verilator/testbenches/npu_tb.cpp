@@ -3,13 +3,13 @@
 
 #include <iostream>
 #include <verilated.h>
-#include "Vnpu_top.h"
+#include "Vnpu_smoke.h"
 
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
     
     // Create instance
-    Vnpu_top* top = new Vnpu_top;
+    Vnpu_smoke* top = new Vnpu_smoke;
     
     std::cout << "=== Tiny NPU Smoke Test ===" << std::endl;
     

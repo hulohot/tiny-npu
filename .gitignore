@@ -1,0 +1,39 @@
+# Build outputs
+build/
+*.o
+*.a
+*.so
+*.elf
+
+# Verilator outputs
+obj_dir/
+*.vcd
+*.fst
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model weights (large files)
+*.bin
+*.safetensors
+*.pkl
+*.pt
+*.pth
+
+# Demo data (generated)
+demo_data/

@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake verilator python3-pip
+        pip3 install numpy
+    
+    - name: Build simulation
+      run: |
+        cd sim/verilator
+        mkdir -p build
+        cd build
+        cmake ..
+        cmake --build . -j$(nproc)
+    
+    - name: Run unit tests
+      run: |
+        cd sim/verilator/build
+        ./npu_sim
+        ./engine_sim
+    
+    - name: Run integration tests
+      run: |
+        cd sim/verilator/build
+        ./integration_sim
+        ./gpt2_block_sim
+
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Verible
+      run: |
+        wget https://github.com/chipsalliance/verible/releases/download/v0.0-3618-g99a02077/verible-v0.0-3618-g99a02077-linux-static-x86_64.tar.gz
+        tar -xzf verible-v0.0-3618-g99a02077-linux-static-x86_64.tar.gz
+        sudo cp verible-v0.0-3618-g99a02077-linux-static-x86_64/bin/* /usr/local/bin/
+    
+    - name: Lint SystemVerilog
+      run: |
+        find rtl -name "*.sv" -exec verible-verilog-lint {} \;

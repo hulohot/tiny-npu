@@ -109,9 +109,10 @@ void test_systolic_16x16x16() {
     int32_t results[16][16];
     bool got_result[16][16] = {false};
     int result_count = 0;
+    int output_row = 0;
     
-    // Run cycles (16 + 16 - 1 = 31 cycles for full matmul, plus padding)
-    for (int cycle = 0; cycle < 50 && result_count < 256; cycle++) {
+    // Run cycles (16 + 16 - 1 = 31 cycles for full matmul, plus padding for output)
+    for (int cycle = 0; cycle < 60 && result_count < 256; cycle++) {
         // Input activations with skew
         // Row i starts at cycle i
         for (int row = 0; row < 16; row++) {
@@ -124,17 +125,16 @@ void test_systolic_16x16x16() {
             }
         }
         
-        // Capture outputs
-        if (array->result_valid) {
-            // Results come out row by row
-            int out_row = cycle - 32 + 16;  // Adjust timing based on pipeline
-            if (out_row >= 0 && out_row < 16) {
-                for (int col = 0; col < 16; col++) {
-                    results[out_row][col] = array->result_out[col];
-                    got_result[out_row][col] = true;
-                }
-                result_count += 16;
+        // Capture outputs when result_valid is asserted
+        // result_valid is high during cycles 16-17 of COMPUTE state, then during OUTPUT state
+        // Each result_valid cycle gives us one column of results across all rows
+        if (array->result_valid && output_row < 16) {
+            for (int row = 0; row < 16; row++) {
+                results[row][output_row] = array->result_out[row];
+                got_result[row][output_row] = true;
             }
+            result_count += 16;
+            output_row++;
         }
         
         array->clk = !array->clk; array->eval();

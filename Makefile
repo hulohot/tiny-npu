@@ -10,9 +10,17 @@ PYTHON_DIR := python
 .PHONY: all
 all: build
 
-# Build simulation
+# Configure and build simulation (only if needed)
 .PHONY: build
 build:
+	@if [ ! -f $(BUILD_DIR)/Makefile ]; then \
+		mkdir -p $(BUILD_DIR) && cd $(BUILD_DIR) && cmake ..; \
+	fi
+	@cd $(BUILD_DIR) && cmake --build . -j$$(nproc)
+
+# Force rebuild (reconfigure + rebuild)
+.PHONY: rebuild
+rebuild:
 	@mkdir -p $(BUILD_DIR)
 	@cd $(BUILD_DIR) && cmake ..
 	@cd $(BUILD_DIR) && cmake --build . -j$$(nproc)
@@ -22,7 +30,28 @@ build:
 test: build
 	@cd $(BUILD_DIR) && ctest --output-on-failure
 
-# Run individual tests
+# Run tests without forcing rebuild
+.PHONY: run-mac
+run-mac:
+	@cd $(BUILD_DIR) && ./test_mac_unit
+
+.PHONY: run-systolic
+run-systolic:
+	@cd $(BUILD_DIR) && ./test_systolic_array
+
+.PHONY: run-smoke
+run-smoke:
+	@cd $(BUILD_DIR) && ./test_npu_smoke
+
+.PHONY: run-integration
+run-integration:
+	@cd $(BUILD_DIR) && ./test_integration
+
+.PHONY: run-gpt2
+run-gpt2:
+	@cd $(BUILD_DIR) && ./test_gpt2_block
+
+# Build + run individual tests (builds only if needed)
 .PHONY: test-mac
 test-mac: build
 	@cd $(BUILD_DIR) && ./test_mac_unit
@@ -93,14 +122,24 @@ lint:
 help:
 	@echo "Tiny NPU - Available targets:"
 	@echo ""
-	@echo "  Build & Test:"
-	@echo "    make build          - Build all simulation targets"
-	@echo "    make test           - Run all tests"
-	@echo "    make test-mac       - Run MAC unit test"
-	@echo "    make test-systolic  - Run systolic array test"
-	@echo "    make test-smoke     - Run NPU smoke test"
-	@echo "    make test-integration - Run integration test"
-	@echo "    make test-gpt2      - Run GPT-2 block test"
+	@echo "  Build:"
+	@echo "    make build          - Build (configure only if needed)"
+	@echo "    make rebuild        - Force reconfigure + rebuild"
+	@echo ""
+	@echo "  Test (auto-build if needed):"
+	@echo "    make test           - Run all tests via ctest"
+	@echo "    make test-mac       - Build (if needed) + run MAC unit test"
+	@echo "    make test-systolic  - Build (if needed) + run systolic array test"
+	@echo "    make test-smoke     - Build (if needed) + run smoke test"
+	@echo "    make test-integration - Build (if needed) + run integration test"
+	@echo "    make test-gpt2      - Build (if needed) + run GPT-2 block test"
+	@echo ""
+	@echo "  Run (no rebuild):"
+	@echo "    make run-mac        - Run MAC unit test (no build)"
+	@echo "    make run-systolic   - Run systolic array test (no build)"
+	@echo "    make run-smoke      - Run smoke test (no build)"
+	@echo "    make run-integration- Run integration test (no build)"
+	@echo "    make run-gpt2       - Run GPT-2 block test (no build)"
 	@echo ""
 	@echo "  Inference:"
 	@echo "    make weights        - Export and quantize GPT-2 weights"

@@ -47,8 +47,8 @@ module mac_unit #(
     end
     
     // Signed multiplication
-    // Both inputs treated as signed 8-bit values
-    assign mult_result = signed'(activation_in) * signed'(weight_reg);
+    // Both inputs treated as signed values
+    assign mult_result = $signed(activation_in) * $signed(weight_reg);
     
     // Sign-extend to accumulator width
     assign mult_extended = {{ACC_WIDTH-(2*DATA_WIDTH){mult_result[2*DATA_WIDTH-1]}}, mult_result};

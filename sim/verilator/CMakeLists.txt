@@ -110,20 +110,26 @@ verilate(test_gpt2_block
 # Generate SRAM init files
 # =============================================================================
 
-# Generate sram1_init.hex (8KB of zeros) if it doesn't exist
+# Generate sram0_init.hex (64KB of zeros)
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/sram0_init.hex
+    COMMAND ${CMAKE_COMMAND} -DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR} -DFILE_NAME=sram0_init.hex -DFILE_SIZE=65536 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_sram_init.cmake
+    COMMENT "Generating SRAM0 initialization file"
+)
+
+# Generate sram1_init.hex (8KB of zeros)
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/sram1_init.hex
-    COMMAND ${CMAKE_COMMAND} -E echo "Generating sram1_init.hex..."
-    COMMAND bash -c "yes '00' | head -n 8192 > ${CMAKE_CURRENT_BINARY_DIR}/sram1_init.hex"
+    COMMAND ${CMAKE_COMMAND} -DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR} -DFILE_NAME=sram1_init.hex -DFILE_SIZE=8192 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_sram_init.cmake
     COMMENT "Generating SRAM1 initialization file"
 )
 
-add_custom_target(sram1_init ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/sram1_init.hex)
+add_custom_target(sram_init ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/sram0_init.hex ${CMAKE_CURRENT_BINARY_DIR}/sram1_init.hex)
 
-# Make tests depend on the init file
-add_dependencies(test_npu_smoke sram1_init)
-add_dependencies(test_integration sram1_init)
-add_dependencies(test_gpt2_block sram1_init)
+# Make tests depend on the init files
+add_dependencies(test_npu_smoke sram_init)
+add_dependencies(test_integration sram_init)
+add_dependencies(test_gpt2_block sram_init)
 
 # =============================================================================
 # Testing

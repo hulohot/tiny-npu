@@ -59,10 +59,17 @@ mkdir -p build && cd build
 cmake ..
 cmake --build . -j$(nproc)
 
-# Run tests
-./npu_sim          # Control plane test
-./engine_sim       # Engine compute tests
-./gpt2_block_sim   # Full transformer block
+# Run unit tests
+./test_mac_unit            # MAC unit (multiply-accumulate) core
+./test_systolic_array      # 16×16 systolic array GEMM engine
+
+# Run integration tests
+./test_npu_smoke           # NPU basic functionality and reset
+./test_integration         # Full NPU integration test
+./test_gpt2_block          # Full transformer block with all engines
+
+# Or run all tests
+ctest
 ```
 
 ## Run GPT-2 Inference

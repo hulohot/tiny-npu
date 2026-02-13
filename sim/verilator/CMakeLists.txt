@@ -26,12 +26,7 @@ set(CTRL_DIR ${RTL_DIR}/control)
 # Common Verilator Args
 set(VERILATOR_COMMON_ARGS 
     --trace 
-    -Wno-fatal 
-    -Wno-WIDTH 
-    -Wno-PINMISSING 
-    -Wno-WIDTHTRUNC 
-    -Wno-WIDTHEXPAND 
-    -Wno-CASEINCOMPLETE
+    -Wno-fatal
 )
 
 # =============================================================================

@@ -176,9 +176,11 @@ module systolic_array #(
         end
     endgenerate
     
-    // Result valid: assert when computation is done
-    // Results appear after ARRAY_SIZE + ARRAY_SIZE - 1 cycles from start
-    assign result_valid = (state == OUTPUT) || 
-                          ((state == COMPUTE) && (cycle_count >= ARRAY_SIZE && cycle_count < ARRAY_SIZE + 2));
+    // Result valid: assert when results are emerging
+    // In a weight-stationary systolic array, results emerge over ARRAY_SIZE cycles
+    // starting at cycle ARRAY_SIZE (after the first column propagates through)
+    assign result_valid = ((state == COMPUTE) && 
+                           (cycle_count >= ARRAY_SIZE) && 
+                           (cycle_count < ARRAY_SIZE * 2));
 
 endmodule

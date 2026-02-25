@@ -330,6 +330,11 @@ module microcode_controller #(
                             OPCODE_END: begin
                                 // Program complete
                             end
+
+                            default: begin
+                                pc <= pc + 1;
+                                instr_valid <= 1'b0;
+                            end
                         endcase
                     end
                 end
@@ -344,6 +349,10 @@ module microcode_controller #(
                 
                 DONE_STATE: begin
                     // Done
+                end
+
+                default: begin
+                    // no-op
                 end
             endcase
         end
@@ -370,6 +379,7 @@ module microcode_controller #(
             end
             WAIT_BARRIER: if (all_engines_idle) next_state = FETCH;
             DONE_STATE: next_state = IDLE;
+            default: next_state = IDLE;
         endcase
     end
     

@@ -130,7 +130,7 @@ module systolic_array #(
                     // Accumulate A*B contribution for current compute cycle.
                     // For skewed stream, A[i][k] appears on activation_in[i] at k = cycle_count - i.
                     if (activation_valid) begin
-                        c_idx = cycle_count;
+                        c_idx = int'(cycle_count);
                         for (i = 0; i < ARRAY_SIZE; i++) begin
                             k_idx = c_idx - i;
                             if ((k_idx >= 0) && (k_idx < ARRAY_SIZE)) begin
@@ -153,7 +153,7 @@ module systolic_array #(
                 end
 
                 OUTPUT: begin
-                    if (out_col == ARRAY_SIZE-1) begin
+                    if (out_col == $clog2(ARRAY_SIZE)'(ARRAY_SIZE-1)) begin
                         state <= IDLE;
                         out_col <= '0;
                     end else begin

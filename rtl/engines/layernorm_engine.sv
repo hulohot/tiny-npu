@@ -46,6 +46,9 @@ module layernorm_engine #(
     } state_t;
     
     state_t state, next_state;
+
+    logic [ACC_WIDTH-1:0] hidden_dim_ext;
+    assign hidden_dim_ext = ACC_WIDTH'(hidden_dim);
     
     // Accumulators for pass 1
     logic signed [ACC_WIDTH-1:0] sum_acc;
@@ -66,6 +69,7 @@ module layernorm_engine #(
     
     // Current processing index
     logic [$clog2(MAX_HIDDEN_DIM)-1:0] current_idx;
+    logic [$clog2(MAX_HIDDEN_DIM)-1:0] param_count;
     
     // Inverse square root LUT
     // Maps variance value to 1/sqrt(var + eps)
@@ -90,6 +94,7 @@ module layernorm_engine #(
             sum_sq_acc <= '0;
             element_count <= '0;
             current_idx <= '0;
+            param_count <= '0;
         end else begin
             state <= next_state;
             
@@ -111,10 +116,10 @@ module layernorm_engine #(
                         input_buffer[element_count] <= data_in;
                         
                         // Accumulate sum
-                        sum_acc <= sum_acc + $signed(data_in);
+                        sum_acc <= sum_acc + ACC_WIDTH'($signed(data_in));
                         
                         // Accumulate sum of squares
-                        sum_sq_acc <= sum_sq_acc + ($signed(data_in) * $signed(data_in));
+                        sum_sq_acc <= sum_sq_acc + (ACC_WIDTH'($signed(data_in)) * ACC_WIDTH'($signed(data_in)));
                         
                         element_count <= element_count + 1;
                     end
@@ -122,12 +127,12 @@ module layernorm_engine #(
                 
                 COMPUTE_STATS: begin
                     // Compute mean = sum / N
-                    mean <= sum_acc / hidden_dim;
+                    mean <= sum_acc / hidden_dim_ext;
                     
                     // Compute variance = E[x^2] - (E[x])^2
                     // var = sum_sq / N - mean^2
-                    variance <= (sum_sq_acc / hidden_dim) - 
-                                ((sum_acc / hidden_dim) * (sum_acc / hidden_dim));
+                    variance <= (sum_sq_acc / hidden_dim_ext) - 
+                                ((sum_acc / hidden_dim_ext) * (sum_acc / hidden_dim_ext));
                     
                     // Lookup 1/sqrt(var + eps)
                     // Clamp variance to LUT range
@@ -152,7 +157,7 @@ module layernorm_engine #(
                         logic signed [ACC_WIDTH-1:0] shifted;
                         
                         x = $signed(input_buffer[current_idx]);
-                        x_minus_mean = $signed(x) - mean;
+                        x_minus_mean = ACC_WIDTH'($signed(x)) - mean;
                         
                         // Multiply by inv_sqrt_var (Q16.16 format)
                         // Result needs to be shifted right by 16
@@ -162,7 +167,7 @@ module layernorm_engine #(
                         scaled = (x_norm * $signed(gamma_buffer[current_idx])) >>> 7;
                         
                         // Apply beta (shift)
-                        shifted = scaled + $signed(beta_buffer[current_idx]);
+                        shifted = scaled + ACC_WIDTH'($signed(beta_buffer[current_idx]));
                         
                         // Clamp to INT8 range
                         if (shifted > 127) begin
@@ -176,18 +181,26 @@ module layernorm_engine #(
                         current_idx <= current_idx + 1;
                     end
                 end
+
+                default: begin
+                    // no-op
+                end
             endcase
         end
     end
     
     // Capture gamma/beta parameters
-    always_ff @(posedge clk) begin
-        if (param_valid && state == IDLE) begin
-            gamma_buffer[element_count] <= gamma_in;
-            beta_buffer[element_count] <= beta_in;
-            element_count <= element_count + 1;
-        end else if (state != IDLE) begin
-            element_count <= '0;  // Reset for use in pass 1
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            param_count <= '0;
+        end else if (state == IDLE) begin
+            if (param_valid) begin
+                gamma_buffer[param_count] <= gamma_in;
+                beta_buffer[param_count] <= beta_in;
+                param_count <= param_count + 1;
+            end
+        end else begin
+            param_count <= '0;
         end
     end
     
@@ -213,6 +226,10 @@ module layernorm_engine #(
             end
             
             DONE_STATE: begin
+                next_state = IDLE;
+            end
+
+            default: begin
                 next_state = IDLE;
             end
         endcase

@@ -77,12 +77,12 @@ module vec_engine #(
         input signed [DATA_WIDTH-1:0] b
     );
         logic signed [2*DATA_WIDTH-1:0] full_product;
-        logic signed [DATA_WIDTH:0] rounded;
+        logic signed [2*DATA_WIDTH-1:0] rounded_full;
         
         full_product = a * b;
         // Round: add 0.5 (1 << 6) before shifting
-        rounded = (full_product + (1 << 6)) >>> 7;
-        return saturate(rounded);
+        rounded_full = (full_product + (1 << 6)) >>> 7;
+        return saturate(rounded_full[DATA_WIDTH:0]);
     endfunction
     
     // Sequential logic
@@ -160,6 +160,10 @@ module vec_engine #(
                 DONE_STATE: begin
                     out_valid <= 1'b0;
                 end
+
+                default: begin
+                    out_valid <= 1'b0;
+                end
             endcase
         end
     end
@@ -180,6 +184,10 @@ module vec_engine #(
             end
             
             DONE_STATE: begin
+                next_state = IDLE;
+            end
+
+            default: begin
                 next_state = IDLE;
             end
         endcase

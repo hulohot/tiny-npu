@@ -5,9 +5,18 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-and-test:
+  stable-regression:
+    name: stable-regression
     runs-on: ubuntu-latest
 
     steps:
@@ -32,11 +41,30 @@ jobs:
           ./test_integration
           ./test_gpt2_block
 
+  full-ctest:
+    name: full-ctest
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake verilator python3-pip
+          pip3 install numpy
+
+      - name: Configure + build Verilator tests
+        run: |
+          cmake -S sim/verilator -B sim/verilator/build
+          cmake --build sim/verilator/build -j"$(nproc)"
+
       - name: Run full ctest suite
         run: |
           ctest --test-dir sim/verilator/build --output-on-failure
 
   lint:
+    name: lint
     runs-on: ubuntu-latest
 
     steps:
@@ -44,9 +72,14 @@ jobs:
 
       - name: Install Verible
         run: |
-          wget https://github.com/chipsalliance/verible/releases/download/v0.0-3618-g99a02077/verible-v0.0-3618-g99a02077-linux-static-x86_64.tar.gz
-          tar -xzf verible-v0.0-3618-g99a02077-linux-static-x86_64.tar.gz
-          sudo cp verible-v0.0-3618-g99a02077-linux-static-x86_64/bin/* /usr/local/bin/
+          set -euo pipefail
+          VERIBLE_URL=$(curl -fsSL https://api.github.com/repos/chipsalliance/verible/releases/latest \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(a["browser_download_url"] for a in d["assets"] if "linux-static-x86_64.tar.gz" in a["name"]))')
+          wget -O verible.tar.gz "$VERIBLE_URL"
+          tar -xzf verible.tar.gz
+          VERIBLE_BIN=$(find . -type f -name verible-verilog-lint | head -n1)
+          test -n "$VERIBLE_BIN"
+          sudo install -m 0755 "$VERIBLE_BIN" /usr/local/bin/verible-verilog-lint
 
       - name: Lint SystemVerilog
         run: |

@@ -58,11 +58,7 @@ module softmax_engine #(
     logic [$clog2(MAX_SEQ_LEN)-1:0] current_row;
     logic [$clog2(MAX_SEQ_LEN)-1:0] current_col;
     
-    // Pass 1: Max tracking
-    logic [DATA_WIDTH-1:0] current_max;
-    
     // Pass 2: Exp computation
-    logic signed [DATA_WIDTH-1:0] diff;           // x - max
     logic [EXP_WIDTH-1:0] exp_result;             // exp(diff)
     
     // Pass 3: Normalization
@@ -86,15 +82,12 @@ module softmax_engine #(
             end else begin
                 // exp(signed_val) * 4096 (Q12.4 fixed point)
                 real exp_val = $exp(signed_val);
-                exp_lut[i] = int'(exp_val * 4096) & 16'hFFFF;
+                exp_lut[i] = EXP_WIDTH'($rtoi(exp_val * 4096));
             end
         end
     end
     
-    // Reciprocal LUT for normalization: 1/x
-    // Maps sum value to reciprocal
-    logic [15:0] recip_lut [0:65535];  // Would be smaller in practice
-    
+
     // Sequential logic
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -142,17 +135,13 @@ module softmax_engine #(
                     if (current_row < seq_len) begin
                         if (current_col < seq_len) begin
                             if (!causal_mask || current_col <= current_row) begin
-                                // x - max
-                                diff <= $signed(input_buffer[current_row][current_col]) - 
-                                           $signed(max_per_row[current_row]);
-                                
                                 // Lookup exp
                                 // Convert signed diff to unsigned index
                                 exp_result <= exp_lut[$signed(input_buffer[current_row][current_col]) - 
                                                         $signed(max_per_row[current_row])];
                                 
                                 // Accumulate sum (pipelined)
-                                sum_per_row[current_row] <= sum_per_row[current_row] + exp_result;
+                                sum_per_row[current_row] <= sum_per_row[current_row] + SUM_WIDTH'(exp_result);
                             end
                             current_col <= current_col + 1;
                         end else begin
@@ -215,6 +204,10 @@ module softmax_engine #(
             DONE_STATE: begin
                 next_state = IDLE;
             end
+
+            default: begin
+                next_state = IDLE;
+            end
         endcase
     end
     
@@ -230,6 +223,8 @@ module softmax_engine #(
     end
     
     // Output generation
+    assign row_out = current_row;
+    assign col_out = current_col;
     assign data_out = result_buffer[row_out][col_out];
     assign out_valid = (state == DONE_STATE);
 

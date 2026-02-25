@@ -88,6 +88,11 @@ distclean: clean
 	@find . -name "*.pyc" -delete
 	@echo "All generated files cleaned"
 
+# Deterministic benchmark harness
+.PHONY: benchmark-deterministic
+benchmark-deterministic: build
+	@bash scripts/benchmark_deterministic.sh
+
 # Generate GPT-2 weights for inference demo
 .PHONY: weights
 weights:
@@ -142,6 +147,7 @@ help:
 	@echo "    make run-gpt2       - Run GPT-2 block test (no build)"
 	@echo ""
 	@echo "  Inference:"
+	@echo "    make benchmark-deterministic - Run deterministic benchmark harness"
 	@echo "    make weights        - Export and quantize GPT-2 weights"
 	@echo "    make infer          - Run inference demo with default prompt"
 	@echo "    make infer-prompt PROMPT=\"...\" - Run with custom prompt"

@@ -132,9 +132,9 @@ module gemm_engine #(
     end
     
     // Calculate number of tiles needed
-    assign tiles_m = 13'((dim_m + ARRAY_SIZE - 1) / ARRAY_SIZE);
-    assign tiles_n = 13'((dim_n + ARRAY_SIZE - 1) / ARRAY_SIZE);
-    assign tiles_k = 13'((dim_k + ARRAY_SIZE - 1) / ARRAY_SIZE);
+    assign tiles_m = $bits(tiles_m)'(((17'(dim_m) + 17'(ARRAY_SIZE) - 17'd1) / 17'(ARRAY_SIZE)));
+    assign tiles_n = $bits(tiles_n)'(((17'(dim_n) + 17'(ARRAY_SIZE) - 17'd1) / 17'(ARRAY_SIZE)));
+    assign tiles_k = $bits(tiles_k)'(((17'(dim_k) + 17'(ARRAY_SIZE) - 17'd1) / 17'(ARRAY_SIZE)));
     
     // Current tile sizes (handle edge cases)
     assign tile_size_m = (tile_m == tiles_m - 1 && dim_m % ARRAY_SIZE != 0) ? 

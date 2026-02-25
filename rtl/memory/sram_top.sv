@@ -24,6 +24,8 @@ module sram_bank #(
     input  logic                      re_b
 );
 
+    localparam int INDEX_WIDTH = $clog2(SIZE);
+
     // Memory array
     logic [DATA_WIDTH-1:0] mem [0:SIZE-1];
     
@@ -36,17 +38,17 @@ module sram_bank #(
     // Port A operation
     always_ff @(posedge clk) begin
         if (we_a) begin
-            mem[addr_a] <= wdata_a;
+            mem[addr_a[INDEX_WIDTH-1:0]] <= wdata_a;
         end
         if (re_a) begin
-            rdata_a <= mem[addr_a];
+            rdata_a <= mem[addr_a[INDEX_WIDTH-1:0]];
         end
     end
     
     // Port B operation (read only)
     always_ff @(posedge clk) begin
         if (re_b) begin
-            rdata_b <= mem[addr_b];
+            rdata_b <= mem[addr_b[INDEX_WIDTH-1:0]];
         end
     end
 
@@ -234,7 +236,7 @@ module sram_top #(
         ucode_rd_data = '0;
         if (ucode_rd_en) begin
             for (int i = 0; i < 16; i++) begin
-                ucode_rd_data[8*i +: 8] = sram0.mem[ucode_addr_b + i];
+                ucode_rd_data[8*i +: 8] = sram0.mem[(ucode_addr_b + 16'(i)) & 16'hFFFF];
             end
         end
     end

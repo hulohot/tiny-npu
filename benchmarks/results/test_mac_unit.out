@@ -1,0 +1,25 @@
+========================================
+      MAC Unit Testbench
+========================================
+Test: MAC basic operation...
+  activation=3, weight=5, partial=10
+  Expected: 25
+  Got: 25
+  PASSED
+Test: MAC clear operation...
+  After clear, partial_sum should be 0
+  Got: 0
+  PASSED
+Test: MAC with negative values...
+  activation=3, weight=-5, partial=10
+  Expected: -5
+  Got: -5
+  PASSED
+Test: MAC pipeline with multiple values...
+  Final accumulator: 30
+  Expected: 30
+  PASSED
+
+========================================
+    ALL TESTS PASSED!
+========================================

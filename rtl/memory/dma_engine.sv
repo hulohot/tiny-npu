@@ -104,7 +104,7 @@ module dma_engine #(
         if (remaining >= BURST_LEN * 8) begin  // 8 bytes per beat
             return BURST_LEN - 1;  // AXI len = beats - 1
         end else begin
-            return (remaining[31:3] - 1) & 8'hFF;  // Divide by 8, subtract 1
+            return 8'((remaining[31:3] - 1));  // Divide by 8, subtract 1
         end
     endfunction
     
@@ -160,11 +160,15 @@ module dma_engine #(
                 WR_DATA: begin
                     if (m_axi_wvalid && m_axi_wready) begin
                         if (m_axi_wlast) begin
-                            bytes_remaining <= bytes_remaining - (current_burst_len + 1) * 8;
-                            current_ddr_addr <= current_ddr_addr + (current_burst_len + 1) * 8;
-                            current_sram_addr <= current_sram_addr + (current_burst_len + 1) * 8;
+                            bytes_remaining <= bytes_remaining - ((32'(current_burst_len) + 32'd1) * 32'd8);
+                            current_ddr_addr <= current_ddr_addr + ((ADDR_WIDTH'(current_burst_len) + ADDR_WIDTH'(1)) * ADDR_WIDTH'(8));
+                            current_sram_addr <= current_sram_addr + ((SRAM_ADDR_WIDTH'(current_burst_len) + SRAM_ADDR_WIDTH'(1)) * SRAM_ADDR_WIDTH'(8));
                         end
                     end
+                end
+
+                default: begin
+                    // no-op
                 end
             endcase
         end
@@ -202,7 +206,7 @@ module dma_engine #(
             RD_WRITE_SRAM: begin
                 if (bytes_remaining <= 1) begin
                     next_state = DONE_STATE;
-                end else if (bytes_remaining % ((current_burst_len + 1) * 8) == 0) begin
+                end else if (bytes_remaining % ((32'(current_burst_len) + 32'd1) * 32'd8) == 0) begin
                     // Need another burst
                     next_state = RD_ADDR;
                 end
@@ -228,7 +232,7 @@ module dma_engine #(
             
             WR_RESP: begin
                 if (m_axi_bvalid && m_axi_bready) begin
-                    if (bytes_remaining <= (current_burst_len + 1) * 8) begin
+                    if (bytes_remaining <= ((32'(current_burst_len) + 32'd1) * 32'd8)) begin
                         next_state = DONE_STATE;
                     end else begin
                         next_state = WR_ADDR;
@@ -237,6 +241,10 @@ module dma_engine #(
             end
             
             DONE_STATE: begin
+                next_state = IDLE;
+            end
+
+            default: begin
                 next_state = IDLE;
             end
         endcase

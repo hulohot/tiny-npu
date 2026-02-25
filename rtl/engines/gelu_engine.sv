@@ -38,6 +38,7 @@ module gelu_engine #(
     initial begin
         // Local variables for computation
         int signed_val;
+        int lut_int;
         real x, gelu_val;
         real sqrt_2_over_pi;
         real coeff;
@@ -70,7 +71,8 @@ module gelu_engine #(
             end else if (gelu_val < -128.0) begin
                 gelu_lut[i] = 8'h80;  // -128
             end else begin
-                gelu_lut[i] = $rtoi(gelu_val) & 8'hFF;
+                lut_int = $rtoi(gelu_val);
+                gelu_lut[i] = lut_int[DATA_WIDTH-1:0];
             end
         end
     end
@@ -109,7 +111,6 @@ module gelu_engine #(
             result_valid_reg <= 1'b0;
         end else begin
             state <= next_state;
-            out_valid <= 1'b0;
             
             case (state)
                 IDLE: begin
@@ -150,6 +151,10 @@ module gelu_engine #(
                 DONE_STATE: begin
                     result_valid_reg <= 1'b0;
                 end
+
+                default: begin
+                    result_valid_reg <= 1'b0;
+                end
             endcase
         end
     end
@@ -170,6 +175,10 @@ module gelu_engine #(
             end
             
             DONE_STATE: begin
+                next_state = IDLE;
+            end
+
+            default: begin
                 next_state = IDLE;
             end
         endcase

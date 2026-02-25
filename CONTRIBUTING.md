@@ -11,25 +11,34 @@ cmake -S sim/verilator -B sim/verilator/build
 cmake --build sim/verilator/build -j"$(nproc)"
 ```
 
-## Run tests before opening a PR
+## Required pre-PR checks
 
 ```bash
-cd sim/verilator/build
-./test_mac_unit
-./test_npu_smoke
-./test_integration
-./test_gpt2_block
-ctest --output-on-failure -E "Systolic_Array"
+make rebuild
+make test
+make benchmark-deterministic
 ```
 
-> Note: `Systolic_Array` is currently tracked as a known failing test in CI while it is being debugged.
+Recommended:
+```bash
+verilator --lint-only -Wall $(find rtl -name '*.sv' | tr '\n' ' ')
+```
+
+## CI checks on PRs
+
+PRs into `main` are expected to pass:
+- `stable-regression`
+- `full-ctest`
+- `lint`
+
+Branch protection setup: `docs/CI_BRANCH_PROTECTION.md`
 
 ## Coding guidelines
 
 - Keep modules synthesizable unless explicitly test-only.
 - Prefer small PRs with one clear purpose.
 - Add or update tests for logic changes.
-- Document architectural changes in `docs/ARCHITECTURE.md`.
+- Document architecture/process changes in `docs/`.
 
 ## Commit style
 

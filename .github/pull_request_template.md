@@ -16,6 +16,7 @@
 
 - [ ] Tests updated or added
 - [ ] `cmake --build sim/verilator/build` succeeds
-- [ ] Relevant tests pass locally
+- [ ] `make test` passes locally
+- [ ] `make benchmark-deterministic` run (and baseline/docs updated if outputs changed)
 - [ ] Docs updated (if behavior/architecture changed)
 - [ ] Breaking changes called out

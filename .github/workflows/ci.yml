@@ -72,9 +72,13 @@ jobs:
 
       - name: Install Verible
         run: |
-          wget https://github.com/chipsalliance/verible/releases/download/v0.0-3618-g99a02077/verible-v0.0-3618-g99a02077-linux-static-x86_64.tar.gz
-          tar -xzf verible-v0.0-3618-g99a02077-linux-static-x86_64.tar.gz
-          sudo cp verible-v0.0-3618-g99a02077-linux-static-x86_64/bin/* /usr/local/bin/
+          set -euo pipefail
+          VERIBLE_URL=$(curl -fsSL https://api.github.com/repos/chipsalliance/verible/releases/latest \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(a["browser_download_url"] for a in d["assets"] if "linux-static-x86_64.tar.gz" in a["name"]))')
+          wget -O verible.tar.gz "$VERIBLE_URL"
+          tar -xzf verible.tar.gz
+          VERIBLE_DIR=$(find . -maxdepth 1 -type d -name 'verible-*linux-static-x86_64' | head -n1)
+          sudo cp "$VERIBLE_DIR"/bin/* /usr/local/bin/
 
       - name: Lint SystemVerilog
         run: |

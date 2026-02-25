@@ -129,8 +129,19 @@ cd sim/verilator/build
 
 GitHub Actions automatically:
 - Builds all simulation targets
-- Runs unit tests and integration tests
-- Verifies bit-exact inference
+- Runs stable regression tests (`test_mac_unit`, `test_npu_smoke`, `test_integration`, `test_gpt2_block`)
+- Runs `ctest` for broad coverage
+- Tracks the known failing `Systolic_Array` test as non-blocking while it is being fixed
+
+## Current Quality Status
+
+- ✅ Stable regression suite passing locally (4/5 test binaries)
+- ⚠️ `Systolic_Array` full 16×16 case is currently failing and tracked in CI
+- ✅ Verible linting enabled in CI
+
+## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR.
 
 ## License
 

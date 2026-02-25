@@ -77,8 +77,9 @@ jobs:
             | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(a["browser_download_url"] for a in d["assets"] if "linux-static-x86_64.tar.gz" in a["name"]))')
           wget -O verible.tar.gz "$VERIBLE_URL"
           tar -xzf verible.tar.gz
-          VERIBLE_DIR=$(find . -maxdepth 1 -type d -name 'verible-*linux-static-x86_64' | head -n1)
-          sudo cp "$VERIBLE_DIR"/bin/* /usr/local/bin/
+          VERIBLE_BIN=$(find . -type f -name verible-verilog-lint | head -n1)
+          test -n "$VERIBLE_BIN"
+          sudo install -m 0755 "$VERIBLE_BIN" /usr/local/bin/verible-verilog-lint
 
       - name: Lint SystemVerilog
         run: |

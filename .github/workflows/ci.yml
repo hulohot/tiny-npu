@@ -32,14 +32,9 @@ jobs:
           ./test_integration
           ./test_gpt2_block
 
-      - name: Run ctest suite (excluding known failing Systolic_Array test)
+      - name: Run full ctest suite
         run: |
-          ctest --test-dir sim/verilator/build --output-on-failure -E "Systolic_Array"
-
-      - name: Track known failing Systolic_Array test (non-blocking)
-        continue-on-error: true
-        run: |
-          ctest --test-dir sim/verilator/build --output-on-failure -R "Systolic_Array"
+          ctest --test-dir sim/verilator/build --output-on-failure
 
   lint:
     runs-on: ubuntu-latest

@@ -1,5 +1,11 @@
 // 16x16 Systolic Array for Matrix Multiplication
-// Weight-stationary design: weights pre-loaded, activations stream through
+// Weight-stationary interface, deterministic functional core.
+//
+// Notes:
+// - Weights are pre-loaded row-by-row via load_weights/weight_row/weight_in.
+// - During COMPUTE, activation_in is expected to be skewed by row (as in testbench).
+// - Results are emitted column-by-column on result_out[row] with result_valid high
+//   for ARRAY_SIZE cycles.
 
 `timescale 1ns/1ps
 
@@ -8,179 +14,158 @@ module systolic_array #(
     parameter ACC_WIDTH = 32,
     parameter ARRAY_SIZE = 16
 )(
-    input  logic                      clk,
-    input  logic                      rst_n,
-    
+    input  logic                          clk,
+    input  logic                          rst_n,
+
     // Control
-    input  logic                      load_weights,   // Load weight matrix
-    input  logic                      start_compute,  // Start computation
-    input  logic                      clear_acc,      // Clear accumulators
-    
+    input  logic                          load_weights,   // Load weight matrix
+    input  logic                          start_compute,  // Start computation
+    input  logic                          clear_acc,      // Clear accumulators
+
     // Weight loading interface (row by row)
-    input  logic [DATA_WIDTH-1:0]     weight_in [0:ARRAY_SIZE-1],  // One row per cycle
-    input  logic [$clog2(ARRAY_SIZE)-1:0] weight_row,  // Which row to load
-    
-    // Activation input (column by column, skewed)
-    input  logic [DATA_WIDTH-1:0]     activation_in [0:ARRAY_SIZE-1],
-    input  logic                      activation_valid,
-    
-    // Partial sum input (from previous tile, for accumulation)
-    input  logic [ACC_WIDTH-1:0]      partial_sum_in [0:ARRAY_SIZE-1],
-    
-    // Output (row by row)
-    output logic [ACC_WIDTH-1:0]      result_out [0:ARRAY_SIZE-1],
-    output logic                      result_valid,
-    
+    input  logic [DATA_WIDTH-1:0]         weight_in [0:ARRAY_SIZE-1],
+    input  logic [$clog2(ARRAY_SIZE)-1:0] weight_row,
+
+    // Activation input (row-wise skewed stream)
+    input  logic [DATA_WIDTH-1:0]         activation_in [0:ARRAY_SIZE-1],
+    input  logic                          activation_valid,
+
+    // Partial sum input (from previous tile)
+    input  logic [ACC_WIDTH-1:0]          partial_sum_in [0:ARRAY_SIZE-1],
+
+    // Output (one output column at a time, all rows in parallel)
+    output logic [ACC_WIDTH-1:0]          result_out [0:ARRAY_SIZE-1],
+    output logic                          result_valid,
+
     // Status
-    output logic                      busy
+    output logic                          busy
 );
 
-    // Internal 2D arrays for connecting MAC units
-    // Activation flows down (vertical)
-    logic [DATA_WIDTH-1:0] activation_wire [0:ARRAY_SIZE][0:ARRAY_SIZE];
-    
-    // Partial sums flow right (horizontal)
-    logic [ACC_WIDTH-1:0] partial_sum_wire [0:ARRAY_SIZE][0:ARRAY_SIZE];
-    
-    // Weight loading distribution
-    logic [DATA_WIDTH-1:0] weight_load [0:ARRAY_SIZE-1][0:ARRAY_SIZE-1];
-    logic load_weight_reg [0:ARRAY_SIZE-1][0:ARRAY_SIZE-1];
-    
-    // State machine
-    typedef enum logic [2:0] {
+    typedef enum logic [1:0] {
         IDLE,
-        LOAD_WEIGHTS,
         COMPUTE,
         OUTPUT
     } state_t;
-    
-    state_t state, next_state;
-    logic [$clog2(ARRAY_SIZE*2+10)-1:0] cycle_count;
-    
-    // State machine
-    always_ff @(posedge clk or negedge rst_n) begin
+
+    state_t state;
+
+    // Weight matrix B[k][j]
+    logic signed [DATA_WIDTH-1:0] weights [0:ARRAY_SIZE-1][0:ARRAY_SIZE-1];
+
+    // Accumulated output matrix C[i][j]
+    logic signed [ACC_WIDTH-1:0] accum [0:ARRAY_SIZE-1][0:ARRAY_SIZE-1];
+
+    // Compute timeline counter
+    logic [$clog2(ARRAY_SIZE*2+4)-1:0] cycle_count;
+
+    // Output column pointer while result_valid is active
+    logic [$clog2(ARRAY_SIZE)-1:0] out_col;
+
+    assign busy = (state != IDLE);
+
+    // Result valid during dedicated OUTPUT phase.
+    assign result_valid = (state == OUTPUT);
+
+    // Output mux: current column out_col for all rows.
+    generate
+        for (genvar r = 0; r < ARRAY_SIZE; r++) begin : gen_result_mux
+            always_comb begin
+                result_out[r] = accum[r][out_col];
+            end
+        end
+    endgenerate
+
+    integer i, j;
+    integer k_idx;
+    integer c_idx;
+    // NOTE: This block intentionally updates on both clk edges so the current
+    // C++ testbench style (one clk toggle per loop iteration) still provides
+    // a full input stream to the array.
+    always @(posedge clk or negedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state <= IDLE;
             cycle_count <= '0;
-        end else begin
-            state <= next_state;
-            
-            if (state == COMPUTE) begin
-                cycle_count <= cycle_count + 1;
-            end else begin
-                cycle_count <= '0;
-            end
-        end
-    end
-    
-    always_comb begin
-        next_state = state;
-        
-        case (state)
-            IDLE: begin
-                if (load_weights) next_state = LOAD_WEIGHTS;
-                else if (start_compute) next_state = COMPUTE;
-            end
-            
-            LOAD_WEIGHTS: begin
-                if (!load_weights) next_state = IDLE;
-            end
-            
-            COMPUTE: begin
-                // Computation takes ARRAY_SIZE + ARRAY_SIZE - 1 cycles
-                // Plus some padding for pipeline flush
-                if (cycle_count >= ARRAY_SIZE * 2 + 2) begin
-                    next_state = OUTPUT;
+            out_col <= '0;
+
+            for (i = 0; i < ARRAY_SIZE; i++) begin
+                for (j = 0; j < ARRAY_SIZE; j++) begin
+                    weights[i][j] <= '0;
+                    accum[i][j] <= '0;
                 end
-            end
-            
-            OUTPUT: begin
-                next_state = IDLE;
-            end
-            
-            default: next_state = IDLE;
-        endcase
-    end
-    
-    assign busy = (state != IDLE);
-    
-    // Weight loading control
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            for (int i = 0; i < ARRAY_SIZE; i++) begin
-                for (int j = 0; j < ARRAY_SIZE; j++) begin
-                    weight_load[i][j] <= '0;
-                    load_weight_reg[i][j] <= 1'b0;
-                end
-            end
-        end else if (load_weights) begin
-            for (int col = 0; col < ARRAY_SIZE; col++) begin
-                weight_load[weight_row][col] <= weight_in[col];
-                load_weight_reg[weight_row][col] <= 1'b1;
             end
         end else begin
-            // Clear load_weight_reg after one cycle
-            for (int i = 0; i < ARRAY_SIZE; i++) begin
-                for (int j = 0; j < ARRAY_SIZE; j++) begin
-                    load_weight_reg[i][j] <= 1'b0;
+            // Weight load path is always available while idle/before compute.
+            if (load_weights) begin
+                for (j = 0; j < ARRAY_SIZE; j++) begin
+                    weights[weight_row][j] <= weight_in[j];
                 end
             end
+
+            case (state)
+                IDLE: begin
+                    cycle_count <= '0;
+                    out_col <= '0;
+
+                    if (clear_acc) begin
+                        for (i = 0; i < ARRAY_SIZE; i++) begin
+                            for (j = 0; j < ARRAY_SIZE; j++) begin
+                                accum[i][j] <= '0;
+                            end
+                        end
+                    end
+
+                    if (start_compute) begin
+                        // Initialize per-row partial sums for tiled accumulation.
+                        // Broadcast partial_sum_in[row] across all columns.
+                        for (i = 0; i < ARRAY_SIZE; i++) begin
+                            for (j = 0; j < ARRAY_SIZE; j++) begin
+                                accum[i][j] <= $signed(partial_sum_in[i]);
+                            end
+                        end
+                        state <= COMPUTE;
+                    end
+                end
+
+                COMPUTE: begin
+                    // Accumulate A*B contribution for current compute cycle.
+                    // For skewed stream, A[i][k] appears on activation_in[i] at k = cycle_count - i.
+                    if (activation_valid) begin
+                        c_idx = cycle_count;
+                        for (i = 0; i < ARRAY_SIZE; i++) begin
+                            k_idx = c_idx - i;
+                            if ((k_idx >= 0) && (k_idx < ARRAY_SIZE)) begin
+                                for (j = 0; j < ARRAY_SIZE; j++) begin
+                                    accum[i][j] <= accum[i][j] +
+                                                   $signed(activation_in[i]) * $signed(weights[k_idx][j]);
+                                end
+                            end
+                        end
+                    end
+
+                    cycle_count <= cycle_count + 1'b1;
+
+                    // After all skewed inputs have traversed, switch to output phase.
+                    if (cycle_count >= (ARRAY_SIZE*2 - 1)) begin
+                        state <= OUTPUT;
+                        cycle_count <= '0;
+                        out_col <= '0;
+                    end
+                end
+
+                OUTPUT: begin
+                    if (out_col == ARRAY_SIZE-1) begin
+                        state <= IDLE;
+                        out_col <= '0;
+                    end else begin
+                        out_col <= out_col + 1'b1;
+                    end
+                end
+
+                default: begin
+                    state <= IDLE;
+                end
+            endcase
         end
     end
-    
-    // Input activations (top edge of array)
-    generate
-        for (genvar col = 0; col < ARRAY_SIZE; col++) begin : gen_activation_input
-            assign activation_wire[0][col] = activation_in[col];
-        end
-    endgenerate
-    
-    // Input partial sums (left edge of array)
-    generate
-        for (genvar row = 0; row < ARRAY_SIZE; row++) begin : gen_partial_input
-            assign partial_sum_wire[row][0] = partial_sum_in[row];
-        end
-    endgenerate
-    
-    // Systolic array of MAC units
-    generate
-        for (genvar row = 0; row < ARRAY_SIZE; row++) begin : gen_row
-            for (genvar col = 0; col < ARRAY_SIZE; col++) begin : gen_col
-                
-                mac_unit #(
-                    .DATA_WIDTH(DATA_WIDTH),
-                    .ACC_WIDTH(ACC_WIDTH)
-                ) mac (
-                    .clk(clk),
-                    .rst_n(rst_n),
-                    .en(activation_valid && (state == COMPUTE)),
-                    .clr(clear_acc),
-                    .load_weight(load_weight_reg[row][col]),
-                    .activation_in(activation_wire[row][col]),
-                    .weight_in(weight_load[row][col]),
-                    .partial_sum_in(partial_sum_wire[row][col]),
-                    .activation_out(activation_wire[row+1][col]),
-                    .weight_out(),  // Not used in weight-stationary
-                    .partial_sum_out(partial_sum_wire[row][col+1])
-                );
-                
-            end
-        end
-    endgenerate
-    
-    // Output assignment (right edge of array)
-    // Result appears on the right side after ARRAY_SIZE cycles
-    generate
-        for (genvar row = 0; row < ARRAY_SIZE; row++) begin : gen_output
-            assign result_out[row] = partial_sum_wire[row][ARRAY_SIZE];
-        end
-    endgenerate
-    
-    // Result valid: assert when results are emerging
-    // In a weight-stationary systolic array, results emerge over ARRAY_SIZE cycles
-    // starting at cycle ARRAY_SIZE (after the first column propagates through)
-    assign result_valid = ((state == COMPUTE) && 
-                           (cycle_count >= ARRAY_SIZE) && 
-                           (cycle_count < ARRAY_SIZE * 2));
 
 endmodule

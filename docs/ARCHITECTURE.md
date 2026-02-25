@@ -2,7 +2,18 @@
 
 ## 1. Overview
 
-Tiny NPU is a minimal neural processing unit designed for transformer inference. It executes quantized INT8 neural networks with INT32 accumulation, targeting small LLMs (GPT-2 small, MicroLlama, etc.).
+Tiny NPU is a minimal neural processing unit project aimed at transformer-style inference experiments.
+
+### 1.0 Implementation Status (Truth Pass)
+
+This document mixes **current implementation** and **target architecture**:
+
+- **Implemented and tested now**: MAC/systolic/integration simulation paths covered by current Verilator tests.
+- **Partially implemented / scaffolding**: several engines and control paths where behavior exists but is not fully feature-complete.
+- **Roadmap / target design**: full ISA/engine capability and production-like NPU behavior described in later sections.
+
+Treat this as an architecture target with incremental implementation, not a claim that every section is fully realized in current RTL.
+
 
 ### 1.1 Design Principles
 

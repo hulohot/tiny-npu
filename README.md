@@ -115,6 +115,17 @@ python3 -m python.eval_first_token --prepare
 
 This gives you a prompt-set match rate so improvements can be measured over time.
 
+### 6) Prompt-set variation check (interactive quality)
+
+```bash
+python3 -m python.eval_prompt_variation
+# writes:
+#   benchmarks/results/prompt_variation/prompt_variation.csv
+#   benchmarks/results/prompt_variation/summary.json
+```
+
+This reports unique first-token count and variation ratio across a prompt set.
+
 ### Current limitations
 
 - RTL path is **not yet wired** for full GPT-2 token generation.

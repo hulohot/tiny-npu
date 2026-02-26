@@ -103,11 +103,18 @@ def run_demo(
     }
 
     if run_verilator:
-        sim_bin = Path("sim/verilator/build/test_gpt2_block")
+        repo_root = Path(__file__).resolve().parent.parent
+        sim_bin = repo_root / "sim/verilator/build/test_gpt2_block"
         if sim_bin.exists():
-            proc = subprocess.run([str(sim_bin)], capture_output=True, text=True)
+            proc = subprocess.run(
+                [str(sim_bin)],
+                capture_output=True,
+                text=True,
+                cwd=str(sim_bin.parent),
+            )
             result["verilator_smoke"] = {
                 "returncode": proc.returncode,
+                "cwd": str(sim_bin.parent),
                 "stdout_tail": "\n".join(proc.stdout.splitlines()[-8:]),
                 "stderr_tail": "\n".join(proc.stderr.splitlines()[-8:]),
             }

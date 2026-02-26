@@ -174,6 +174,8 @@ def run_demo(
         )
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    # Avoid transformers FutureWarning spam and keep explicit decode behavior.
+    tokenizer.clean_up_tokenization_spaces = False
     if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -252,6 +254,7 @@ def run_demo(
 
 def _run_interactive(args: argparse.Namespace) -> None:
     print("tiny-npu interactive demo (type 'exit' or Ctrl-D to quit)")
+    turn = 0
     while True:
         try:
             prompt = input("you> ").strip()
@@ -262,6 +265,10 @@ def _run_interactive(args: argparse.Namespace) -> None:
             continue
         if prompt.lower() in {"exit", "quit"}:
             break
+
+        # For interactive UX, avoid reusing the exact same RNG stream every turn.
+        # If seed>=0, derive per-turn deterministic seeds; if seed<0, randomize.
+        run_seed = (args.seed + turn) if args.seed >= 0 else int(np.random.randint(0, 2**31 - 1))
 
         result = run_demo(
             prompt=prompt,
@@ -274,11 +281,12 @@ def _run_interactive(args: argparse.Namespace) -> None:
             top_k=args.top_k,
             top_p=args.top_p,
             repetition_penalty=args.repetition_penalty,
-            seed=args.seed,
+            seed=run_seed,
         )
 
         print(f"ref> {result['reference']['generated_text']!r}")
         print(f"sim> {result['simulated']['token']!r}  (first-token projection-only)")
+        turn += 1
 
 
 def main() -> None:
@@ -293,7 +301,7 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=40, help="Top-k sampling cutoff (0 disables)")
     parser.add_argument("--top-p", type=float, default=0.95, help="Top-p nucleus sampling cutoff")
     parser.add_argument("--repetition-penalty", type=float, default=1.1, help="Penalty >1.0 discourages repeats")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for deterministic sampling")
+    parser.add_argument("--seed", type=int, default=42, help="Base random seed (interactive mode auto-increments per turn; use -1 for random each turn)")
     parser.add_argument(
         "--run-verilator-smoke",
         action="store_true",

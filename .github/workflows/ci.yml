@@ -5,6 +5,8 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+  schedule:
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -35,11 +37,20 @@ jobs:
 
       - name: Run stable regression suite
         run: |
+          mkdir -p artifacts/stable-regression
           cd sim/verilator/build
-          ./test_mac_unit
-          ./test_npu_smoke
-          ./test_integration
-          ./test_gpt2_block
+          ./test_mac_unit 2>&1 | tee ../../artifacts/stable-regression/test_mac_unit.log
+          ./test_npu_smoke 2>&1 | tee ../../artifacts/stable-regression/test_npu_smoke.log
+          ./test_integration 2>&1 | tee ../../artifacts/stable-regression/test_integration.log
+          ./test_gpt2_block 2>&1 | tee ../../artifacts/stable-regression/test_gpt2_block.log
+
+      - name: Upload stable regression logs (failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stable-regression-logs
+          path: artifacts/stable-regression/
+          retention-days: 14
 
   full-ctest:
     name: full-ctest
@@ -61,7 +72,16 @@ jobs:
 
       - name: Run full ctest suite
         run: |
-          ctest --test-dir sim/verilator/build --output-on-failure
+          mkdir -p artifacts/full-ctest
+          ctest --test-dir sim/verilator/build --output-on-failure 2>&1 | tee artifacts/full-ctest/ctest.log
+
+      - name: Upload ctest logs (failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-ctest-logs
+          path: artifacts/full-ctest/
+          retention-days: 14
 
   lint:
     name: lint

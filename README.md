@@ -64,11 +64,11 @@ tiny-npu/
 └── .github/workflows/      # CI
 ```
 
-## Minimal real-weights LLM demo (interactive + first-token compare)
+## Minimal real-weights LLM demo (interactive + reference vs simulated decode)
 
 This repository includes a minimal end-to-end path that uses **real HuggingFace GPT-2-family weights** (default: `sshleifer/tiny-gpt2`) and reports:
 - **reference generation** from full HF model
-- **simulated token** from an INT8 projection-only path (real hidden-state + real `lm_head`, first-token only)
+- **simulated generation** from an INT8 projection decode path (multi-token software approximation using real hidden states + real `lm_head`)
 
 ### 1) Prepare artifacts in `demo_data`
 
@@ -84,7 +84,9 @@ This runs export + quantization/packing. Pack assumptions are recorded in `demo_
 python -m python.run_tiny_llm_sim \
   --prompt "Hello tiny NPU" \
   --max-new-tokens 16 \
-  --temperature 0.9 --top-k 40 --top-p 0.95 --seed 42
+  --temperature 0.9 --top-k 40 --top-p 0.95 --seed 42 \
+  --sim-max-new-tokens 16 \
+  --sim-temperature 0.0 --sim-top-k 0 --sim-top-p 1.0 --sim-seed 123
 ```
 
 Optional smoke check integration (if Verilator build exists):
@@ -96,7 +98,10 @@ python -m python.run_tiny_llm_sim --prompt "Hello tiny NPU" --run-verilator-smok
 ### 3) Interactive mode
 
 ```bash
-python -m python.run_tiny_llm_sim --interactive --max-new-tokens 16 --temperature 0.9 --top-k 40 --top-p 0.95 --seed 42
+python -m python.run_tiny_llm_sim \
+  --interactive \
+  --max-new-tokens 16 --temperature 0.9 --top-k 40 --top-p 0.95 --seed 42 \
+  --sim-max-new-tokens 16 --sim-temperature 0.0 --sim-top-k 0 --sim-top-p 1.0 --sim-seed 123
 ```
 
 ### 4) Smoke/regression check
@@ -132,8 +137,8 @@ This reports unique first-token count and variation ratio across a prompt set.
 ### Current limitations
 
 - RTL path is **not yet wired** for full GPT-2 token generation.
-- `simulated` remains first-token projection-only INT8 emulation, not full block-by-block RTL execution.
-- Multi-token autoregressive decode and KV-cache handling are not yet implemented in hardware flow.
+- `simulated` uses INT8 projection decode with hidden states from the full HF model at each step; this is **not** full block-by-block RTL execution.
+- KV-cache behavior and true hardware-timed autoregressive decode are not yet implemented in the RTL path.
 
 ## Contributing
 

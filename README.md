@@ -36,8 +36,11 @@ cmake --build sim/verilator/build -j$(nproc)
 # Run all tests
 ctest --test-dir sim/verilator/build --output-on-failure
 
-# Deterministic baseline harness
+# Deterministic baseline harness (defaults to RUNS=3)
 make benchmark-deterministic
+
+# Override repeat count (N runs + hash compare)
+RUNS=5 make benchmark-deterministic
 ```
 
 ## CI

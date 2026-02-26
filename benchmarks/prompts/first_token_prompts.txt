@@ -1,0 +1,20 @@
+Hello tiny NPU
+hi
+how is it going?
+What is machine learning?
+The quick brown fox
+Explain matrix multiplication simply.
+Write a short greeting.
+I am testing a prototype chip.
+How do transformers work?
+Tell me a joke.
+What is 2 + 2?
+Define attention mechanism.
+Summarize this: tiny NPU demo.
+Could you help me debug this?
+Why is quantization useful?
+Generate one next token.
+This is a test
+Let's talk about hardware.
+What is your favorite color?
+Good morning

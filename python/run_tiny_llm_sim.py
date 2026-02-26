@@ -77,14 +77,14 @@ def run_demo(
     # Reference (full model)
     ref_logits = out.logits[0, -1, :].detach().cpu().numpy()
     ref_token_id = int(np.argmax(ref_logits))
-    ref_token = tokenizer.decode([ref_token_id])
+    ref_token = tokenizer.decode([ref_token_id], clean_up_tokenization_spaces=False)
 
     # Simulated path (INT8 projection from real hidden state + real lm_head)
     last_hidden = out.hidden_states[-1][0, -1, :].detach().cpu().numpy()
     lm_head = np.load(datadir / "lm_head.npy")
     sim_logits = _sim_logits_from_hidden(last_hidden, lm_head)
     sim_token_id = int(np.argmax(sim_logits))
-    sim_token = tokenizer.decode([sim_token_id])
+    sim_token = tokenizer.decode([sim_token_id], clean_up_tokenization_spaces=False)
 
     result = {
         "model": model_name,

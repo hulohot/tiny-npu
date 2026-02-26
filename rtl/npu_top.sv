@@ -161,7 +161,38 @@ module npu_top #(
     logic [15:0] ucode_rd_addr;
     logic [127:0] ucode_rd_data;
     logic ucode_rd_en;
-    
+
+    // Explicit sinks for intentionally-unconsumed outputs
+    logic barrier_wait_unused;
+    logic gemm_array_load_weights_unused;
+    logic [$clog2(ARRAY_SIZE)-1:0] gemm_array_weight_row_unused;
+    logic [DATA_WIDTH-1:0] gemm_array_weight_in_unused [0:ARRAY_SIZE-1];
+    logic unused_top_wiring;
+
+    // Tie-offs for currently unimplemented engine SRAM ports to avoid dead/undriven wiring
+    assign softmax_rd_addr   = '0;
+    assign softmax_rd_en     = 1'b0;
+    assign layernorm_rd_addr = '0;
+    assign layernorm_rd_en   = 1'b0;
+    assign layernorm_wr_addr = '0;
+    assign layernorm_wr_data = '0;
+    assign layernorm_wr_en   = 1'b0;
+    assign layernorm_rd_addr_b = '0;
+    assign layernorm_rd_en_b = 1'b0;
+    assign gelu_rd_addr      = '0;
+    assign gelu_rd_en        = 1'b0;
+    assign gelu_wr_addr      = '0;
+    assign gelu_wr_data      = '0;
+    assign gelu_wr_en        = 1'b0;
+    assign vec_rd_addr       = '0;
+    assign vec_rd_en         = 1'b0;
+    assign vec_rd_addr_b     = '0;
+    assign vec_rd_en_b       = 1'b0;
+    assign vec_wr_addr       = '0;
+    assign vec_wr_data       = '0;
+    assign vec_wr_en         = 1'b0;
+    assign dma_wr_addr       = dma_rd_addr;
+
     // Register file instance
     npu_regs regs (
         .clk(clk),
@@ -254,7 +285,7 @@ module npu_top #(
         .dma_direction(dma_direction),
         .dma_byte_count(dma_byte_count),
         
-        .barrier_wait(),
+        .barrier_wait(barrier_wait_unused),
         .all_engines_idle(!gemm_busy && !softmax_busy && !layernorm_busy && 
                           !gelu_busy && !vec_busy && !dma_busy)
     );
@@ -336,9 +367,9 @@ module npu_top #(
         .sram_wr_addr(gemm_wr_addr),
         .sram_wr_data(gemm_wr_data),
         .sram_wr_en(gemm_wr_en),
-        .array_load_weights(),
-        .array_weight_row(),
-        .array_weight_in()
+        .array_load_weights(gemm_array_load_weights_unused),
+        .array_weight_row(gemm_array_weight_row_unused),
+        .array_weight_in(gemm_array_weight_in_unused)
     );
     
     dma_engine #(.DATA_WIDTH(DATA_WIDTH)) dma (
@@ -392,6 +423,42 @@ module npu_top #(
     assign gelu_done = 1'b0;
     assign vec_busy = 1'b0;
     assign vec_done = 1'b0;
+
+    // Aggregate intentionally-unused signals to keep top-level wiring lint-clean
+    assign unused_top_wiring = &{
+        1'b0,
+        status_reg[31:1],
+        ddr_base_wgt_reg,
+        exec_mode_reg,
+        gemm_done,
+        softmax_start,
+        softmax_done,
+        layernorm_start,
+        layernorm_done,
+        gelu_start,
+        gelu_done,
+        vec_start,
+        vec_done,
+        dma_done,
+        softmax_causal,
+        softmax_m,
+        softmax_n,
+        layernorm_dim,
+        gelu_count,
+        vec_op,
+        vec_count,
+        vec_imm,
+        softmax_rd_data,
+        layernorm_rd_data,
+        layernorm_rd_data_b,
+        gelu_rd_data,
+        vec_rd_data,
+        vec_rd_data_b,
+        barrier_wait_unused,
+        gemm_array_load_weights_unused,
+        gemm_array_weight_row_unused,
+        gemm_array_weight_in_unused
+    };
     
 endmodule
 

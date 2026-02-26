@@ -199,11 +199,22 @@ module sram_top #(
     // Read data distribution
     assign dma_rd_data = (dma_rd_en) ? sram0_rdata_a : '0;
     assign gemm_rd_data = (gemm_rd_en) ? sram0_rdata_a : '0;
+
+    // Unimplemented engine paths are tied off for deterministic top-level wiring
+    assign softmax_rd_data = '0;
+    assign layernorm_rd_data = '0;
+    assign layernorm_rd_data_b = '0;
+    assign gelu_rd_data = '0;
+    assign vec_rd_data = '0;
+    assign vec_rd_data_b = '0;
     
     // UCODE Fetch logic (Port B)
     // We will cheat slightly and read 16 consecutive bytes in one cycle
     // to satisfy the 128-bit instruction width requirement without changing controller.
     logic [15:0] ucode_addr_b;
+    logic [DATA_WIDTH-1:0] sram0_rdata_b_unused;
+    logic [DATA_WIDTH-1:0] sram1_rdata_a_unused;
+    logic [DATA_WIDTH-1:0] sram1_rdata_b_unused;
     assign ucode_addr_b = ucode_rd_addr;
     
     // Instantiate SRAM0
@@ -221,7 +232,7 @@ module sram_top #(
         .re_a(sram0_re_a),
         
         .addr_b(ucode_addr_b),
-        .rdata_b(), // We use custom wide output below
+        .rdata_b(sram0_rdata_b_unused), // Port B scalar read is unused; wide-read path used below
         .re_b(ucode_rd_en)
     );
     
@@ -241,6 +252,37 @@ module sram_top #(
         end
     end
     
+    // Keep currently-unused placeholder/control inputs explicit for lint hygiene
+    logic unused_sram_inputs;
+    assign unused_sram_inputs = &{
+        1'b0,
+        rst_n,
+        softmax_rd_addr,
+        softmax_rd_en,
+        layernorm_rd_addr,
+        layernorm_rd_en,
+        layernorm_wr_addr,
+        layernorm_wr_data,
+        layernorm_wr_en,
+        layernorm_rd_addr_b,
+        layernorm_rd_en_b,
+        gelu_rd_addr,
+        gelu_rd_en,
+        gelu_wr_addr,
+        gelu_wr_data,
+        gelu_wr_en,
+        vec_rd_addr,
+        vec_rd_en,
+        vec_rd_addr_b,
+        vec_rd_en_b,
+        vec_wr_addr,
+        vec_wr_data,
+        vec_wr_en,
+        sram0_rdata_b_unused,
+        sram1_rdata_a_unused,
+        sram1_rdata_b_unused
+    };
+
     // SRAM1 (Aux) - Placeholder logic
     sram_bank #(
         .DATA_WIDTH(DATA_WIDTH),
@@ -249,8 +291,8 @@ module sram_top #(
         .INIT_FILE(SRAM1_INIT_FILE)
     ) sram1 (
         .clk(clk),
-        .addr_a('0), .wdata_a('0), .rdata_a(), .we_a(0), .re_a(0),
-        .addr_b('0), .rdata_b(), .re_b(0)
+        .addr_a('0), .wdata_a('0), .rdata_a(sram1_rdata_a_unused), .we_a(0), .re_a(0),
+        .addr_b('0), .rdata_b(sram1_rdata_b_unused), .re_b(0)
     );
 
 endmodule

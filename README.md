@@ -104,6 +104,17 @@ python -m unittest python/tests/test_tiny_llm_smoke.py
 
 > Note: this smoke test auto-skips when model dependencies/download are unavailable in the environment.
 
+### 5) First-token evaluation harness (reference vs simulated)
+
+```bash
+python3 -m python.eval_first_token --prepare
+# writes:
+#   benchmarks/results/first_token_eval/first_token_eval.csv
+#   benchmarks/results/first_token_eval/summary.json
+```
+
+This gives you a prompt-set match rate so improvements can be measured over time.
+
 ### Current limitations
 
 - RTL path is **not yet wired** for full GPT-2 token generation.

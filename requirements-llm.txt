@@ -1,0 +1,7 @@
+# Tiny-NPU LLM demo runtime dependencies
+# Pinned to versions compatible with Python 3.11 in Codespaces/macOS.
+numpy>=1.26,<2.0
+torch>=2.2,<2.6
+transformers>=4.41,<4.50
+huggingface-hub<1.0
+tokenizers<0.20

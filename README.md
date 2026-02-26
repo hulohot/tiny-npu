@@ -64,13 +64,22 @@ tiny-npu/
 └── .github/workflows/      # CI
 ```
 
-## Minimal real-weights LLM demo (interactive + first-token compare)
+## Minimal real-weights LLM demo (interactive + reference vs simulated decode)
 
 This repository includes a minimal end-to-end path that uses **real HuggingFace GPT-2-family weights** (default: `sshleifer/tiny-gpt2`) and reports:
 - **reference generation** from full HF model
-- **simulated token** from an INT8 projection-only path (real hidden-state + real `lm_head`, first-token only)
+- **simulated generation** from an INT8 projection decode path (multi-token software approximation using real hidden states + real `lm_head`)
 
-### 1) Prepare artifacts in `demo_data`
+### 1) Install runtime dependencies (one-time)
+
+```bash
+bash scripts/setup_llm_env.sh
+source .venv/bin/activate
+```
+
+(Or manually: `python -m pip install -r requirements-llm.txt`.)
+
+### 2) Prepare artifacts in `demo_data`
 
 ```bash
 python -m python.run_tiny_llm_sim --prepare --prompt "hello"
@@ -78,13 +87,15 @@ python -m python.run_tiny_llm_sim --prepare --prompt "hello"
 
 This runs export + quantization/packing. Pack assumptions are recorded in `demo_data/quant_manifest.json`.
 
-### 2) One-shot run (JSON output)
+### 3) One-shot run (JSON output)
 
 ```bash
 python -m python.run_tiny_llm_sim \
   --prompt "Hello tiny NPU" \
   --max-new-tokens 16 \
-  --temperature 0.9 --top-k 40 --top-p 0.95 --seed 42
+  --temperature 0.9 --top-k 40 --top-p 0.95 --seed 42 \
+  --sim-max-new-tokens 16 \
+  --sim-temperature 0.0 --sim-top-k 0 --sim-top-p 1.0 --sim-seed 123
 ```
 
 Optional smoke check integration (if Verilator build exists):
@@ -93,13 +104,16 @@ Optional smoke check integration (if Verilator build exists):
 python -m python.run_tiny_llm_sim --prompt "Hello tiny NPU" --run-verilator-smoke
 ```
 
-### 3) Interactive mode
+### 4) Interactive mode
 
 ```bash
-python -m python.run_tiny_llm_sim --interactive --max-new-tokens 16 --temperature 0.9 --top-k 40 --top-p 0.95 --seed 42
+python -m python.run_tiny_llm_sim \
+  --interactive \
+  --max-new-tokens 16 --temperature 0.9 --top-k 40 --top-p 0.95 --seed 42 \
+  --sim-max-new-tokens 16 --sim-temperature 0.0 --sim-top-k 0 --sim-top-p 1.0 --sim-seed 123
 ```
 
-### 4) Smoke/regression check
+### 5) Smoke/regression check
 
 ```bash
 python -m unittest python/tests/test_tiny_llm_smoke.py
@@ -107,7 +121,7 @@ python -m unittest python/tests/test_tiny_llm_smoke.py
 
 > Note: this smoke test auto-skips when model dependencies/download are unavailable in the environment.
 
-### 5) First-token evaluation harness (reference vs simulated)
+### 6) First-token evaluation harness (reference vs simulated)
 
 ```bash
 python3 -m python.eval_first_token --prepare
@@ -118,7 +132,7 @@ python3 -m python.eval_first_token --prepare
 
 This gives you a prompt-set match rate so improvements can be measured over time.
 
-### 6) Prompt-set variation check (interactive quality)
+### 7) Prompt-set variation check (interactive quality)
 
 ```bash
 python3 -m python.eval_prompt_variation
@@ -132,8 +146,8 @@ This reports unique first-token count and variation ratio across a prompt set.
 ### Current limitations
 
 - RTL path is **not yet wired** for full GPT-2 token generation.
-- `simulated` remains first-token projection-only INT8 emulation, not full block-by-block RTL execution.
-- Multi-token autoregressive decode and KV-cache handling are not yet implemented in hardware flow.
+- `simulated` uses INT8 projection decode with hidden states from the full HF model at each step; this is **not** full block-by-block RTL execution.
+- KV-cache behavior and true hardware-timed autoregressive decode are not yet implemented in the RTL path.
 
 ## Contributing
 

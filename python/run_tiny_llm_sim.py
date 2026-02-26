@@ -3,7 +3,7 @@
 Capabilities:
 - Export + quantize + pack real tiny GPT-2 weights (optional --prepare)
 - Reference generation via full HF model (1+ tokens)
-- Simulated token via INT8 projection-only path (first generated token)
+- Simulated decode via INT8 projection-only path (multi-token software approximation)
 - Optional Verilator smoke execution
 - Optional interactive REPL mode
 """
@@ -145,6 +145,54 @@ def _run_reference_generation(
     return generated, text, first_hidden, seen_ids
 
 
+def _run_simulated_generation(
+    model: Any,
+    tokenizer: Any,
+    torch: Any,
+    prompt: str,
+    max_new_tokens: int,
+    lm_head_w: np.ndarray,
+    temperature: float,
+    top_k: int,
+    top_p: float,
+    repetition_penalty: float,
+    seed: int,
+) -> tuple[list[int], str, list[int]]:
+    """Multi-token simulated decode.
+
+    Important: this is still *not* RTL/full-hardware decode. Hidden states are
+    produced by the full HF model each step; only output projection + decoding
+    policy are simulated in numpy.
+    """
+    inputs = tokenizer(prompt, return_tensors="pt")
+    input_ids = inputs["input_ids"]
+    seen_ids = input_ids[0].tolist()
+    rng = np.random.default_rng(seed)
+
+    generated: list[int] = []
+    for _ in range(max_new_tokens):
+        with torch.no_grad():
+            out = model(input_ids=input_ids, output_hidden_states=True, return_dict=True)
+
+        last_hidden = out.hidden_states[-1][0, -1, :].detach().cpu().numpy()
+        sim_logits = _sim_logits_from_hidden(last_hidden, lm_head_w)
+        adjusted = _apply_repetition_penalty(sim_logits, seen_ids + generated, repetition_penalty)
+        next_id = _sample_from_logits(
+            adjusted,
+            rng=rng,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+        )
+
+        generated.append(next_id)
+        next_tok = torch.tensor([[next_id]], dtype=input_ids.dtype, device=input_ids.device)
+        input_ids = torch.cat([input_ids, next_tok], dim=1)
+
+    text = tokenizer.decode(generated, clean_up_tokenization_spaces=False)
+    return generated, text, seen_ids
+
+
 def run_demo(
     prompt: str,
     model_name: str,
@@ -157,6 +205,12 @@ def run_demo(
     top_p: float,
     repetition_penalty: float,
     seed: int,
+    sim_max_new_tokens: int,
+    sim_temperature: float,
+    sim_top_k: int,
+    sim_top_p: float,
+    sim_repetition_penalty: float,
+    sim_seed: int,
 ) -> dict:
     try:
         import torch
@@ -182,7 +236,7 @@ def run_demo(
     model = AutoModelForCausalLM.from_pretrained(model_name)
     model.eval()
 
-    gen_ids, gen_text, first_hidden, prompt_token_ids = _run_reference_generation(
+    gen_ids, gen_text, _first_hidden, prompt_token_ids = _run_reference_generation(
         model=model,
         tokenizer=tokenizer,
         torch=torch,
@@ -197,9 +251,27 @@ def run_demo(
 
     # Simulated path (INT8 projection from real hidden state + real lm_head)
     lm_head = np.load(datadir / "lm_head.npy")
-    sim_logits = _sim_logits_from_hidden(first_hidden, lm_head)
-    sim_token_id = int(np.argmax(sim_logits))
-    sim_token = tokenizer.decode([sim_token_id], clean_up_tokenization_spaces=False)
+    sim_gen_ids, sim_gen_text, sim_prompt_token_ids = _run_simulated_generation(
+        model=model,
+        tokenizer=tokenizer,
+        torch=torch,
+        prompt=prompt,
+        max_new_tokens=sim_max_new_tokens,
+        lm_head_w=lm_head,
+        temperature=sim_temperature,
+        top_k=sim_top_k,
+        top_p=sim_top_p,
+        repetition_penalty=sim_repetition_penalty,
+        seed=sim_seed,
+    )
+
+    # Backward-compatible first-token fields
+    sim_token_id = int(sim_gen_ids[0]) if sim_gen_ids else None
+    sim_token = (
+        tokenizer.decode([sim_token_id], clean_up_tokenization_spaces=False)
+        if sim_token_id is not None
+        else ""
+    )
 
     result = {
         "model": model_name,
@@ -213,6 +285,14 @@ def run_demo(
             "repetition_penalty": repetition_penalty,
             "seed": seed,
         },
+        "sim_decoding": {
+            "max_new_tokens": sim_max_new_tokens,
+            "temperature": sim_temperature,
+            "top_k": sim_top_k,
+            "top_p": sim_top_p,
+            "repetition_penalty": sim_repetition_penalty,
+            "seed": sim_seed,
+        },
         "reference": {
             "token_id": int(gen_ids[0]),
             "token": tokenizer.decode([int(gen_ids[0])], clean_up_tokenization_spaces=False),
@@ -223,7 +303,13 @@ def run_demo(
         "simulated": {
             "token_id": sim_token_id,
             "token": sim_token,
-            "note": "INT8 simulated projection only (first-token projection from real hidden state + real lm_head)",
+            "prompt_token_ids": sim_prompt_token_ids,
+            "generated_token_ids": [int(x) for x in sim_gen_ids],
+            "generated_text": sim_gen_text,
+            "note": (
+                "INT8 simulated projection decode using HF hidden states at each step; "
+                "this is a software approximation and not full RTL/hardware autoregressive execution"
+            ),
         },
     }
 
@@ -269,6 +355,7 @@ def _run_interactive(args: argparse.Namespace) -> None:
         # For interactive UX, avoid reusing the exact same RNG stream every turn.
         # If seed>=0, derive per-turn deterministic seeds; if seed<0, randomize.
         run_seed = (args.seed + turn) if args.seed >= 0 else int(np.random.randint(0, 2**31 - 1))
+        sim_run_seed = (args.sim_seed + turn) if args.sim_seed >= 0 else int(np.random.randint(0, 2**31 - 1))
 
         result = run_demo(
             prompt=prompt,
@@ -282,10 +369,16 @@ def _run_interactive(args: argparse.Namespace) -> None:
             top_p=args.top_p,
             repetition_penalty=args.repetition_penalty,
             seed=run_seed,
+            sim_max_new_tokens=args.sim_max_new_tokens,
+            sim_temperature=args.sim_temperature,
+            sim_top_k=args.sim_top_k,
+            sim_top_p=args.sim_top_p,
+            sim_repetition_penalty=args.sim_repetition_penalty,
+            sim_seed=sim_run_seed,
         )
 
         print(f"ref> {result['reference']['generated_text']!r}")
-        print(f"sim> {result['simulated']['token']!r}  (first-token projection-only)")
+        print(f"sim> {result['simulated']['generated_text']!r}  (projection-decode simulation)")
         turn += 1
 
 
@@ -302,6 +395,12 @@ def main() -> None:
     parser.add_argument("--top-p", type=float, default=0.95, help="Top-p nucleus sampling cutoff")
     parser.add_argument("--repetition-penalty", type=float, default=1.1, help="Penalty >1.0 discourages repeats")
     parser.add_argument("--seed", type=int, default=42, help="Base random seed (interactive mode auto-increments per turn; use -1 for random each turn)")
+    parser.add_argument("--sim-max-new-tokens", type=int, default=12, help="Simulated generation length")
+    parser.add_argument("--sim-temperature", type=float, default=0.0, help="Simulated sampling temperature (0=greedy)")
+    parser.add_argument("--sim-top-k", type=int, default=0, help="Simulated top-k sampling cutoff (0 disables)")
+    parser.add_argument("--sim-top-p", type=float, default=1.0, help="Simulated top-p nucleus sampling cutoff")
+    parser.add_argument("--sim-repetition-penalty", type=float, default=1.0, help="Simulated penalty >1.0 discourages repeats")
+    parser.add_argument("--sim-seed", type=int, default=123, help="Simulated random seed (interactive mode auto-increments per turn; use -1 for random each turn)")
     parser.add_argument(
         "--run-verilator-smoke",
         action="store_true",
@@ -329,6 +428,12 @@ def main() -> None:
         top_p=args.top_p,
         repetition_penalty=args.repetition_penalty,
         seed=args.seed,
+        sim_max_new_tokens=args.sim_max_new_tokens,
+        sim_temperature=args.sim_temperature,
+        sim_top_k=args.sim_top_k,
+        sim_top_p=args.sim_top_p,
+        sim_repetition_penalty=args.sim_repetition_penalty,
+        sim_seed=args.sim_seed,
     )
     print(json.dumps(result, indent=2))
 

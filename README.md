@@ -70,7 +70,16 @@ This repository includes a minimal end-to-end path that uses **real HuggingFace 
 - **reference generation** from full HF model
 - **simulated generation** from an INT8 projection decode path (multi-token software approximation using real hidden states + real `lm_head`)
 
-### 1) Prepare artifacts in `demo_data`
+### 1) Install runtime dependencies (one-time)
+
+```bash
+bash scripts/setup_llm_env.sh
+source .venv/bin/activate
+```
+
+(Or manually: `python -m pip install -r requirements-llm.txt`.)
+
+### 2) Prepare artifacts in `demo_data`
 
 ```bash
 python -m python.run_tiny_llm_sim --prepare --prompt "hello"
@@ -78,7 +87,7 @@ python -m python.run_tiny_llm_sim --prepare --prompt "hello"
 
 This runs export + quantization/packing. Pack assumptions are recorded in `demo_data/quant_manifest.json`.
 
-### 2) One-shot run (JSON output)
+### 3) One-shot run (JSON output)
 
 ```bash
 python -m python.run_tiny_llm_sim \
@@ -95,7 +104,7 @@ Optional smoke check integration (if Verilator build exists):
 python -m python.run_tiny_llm_sim --prompt "Hello tiny NPU" --run-verilator-smoke
 ```
 
-### 3) Interactive mode
+### 4) Interactive mode
 
 ```bash
 python -m python.run_tiny_llm_sim \
@@ -104,7 +113,7 @@ python -m python.run_tiny_llm_sim \
   --sim-max-new-tokens 16 --sim-temperature 0.0 --sim-top-k 0 --sim-top-p 1.0 --sim-seed 123
 ```
 
-### 4) Smoke/regression check
+### 5) Smoke/regression check
 
 ```bash
 python -m unittest python/tests/test_tiny_llm_smoke.py
@@ -112,7 +121,7 @@ python -m unittest python/tests/test_tiny_llm_smoke.py
 
 > Note: this smoke test auto-skips when model dependencies/download are unavailable in the environment.
 
-### 5) First-token evaluation harness (reference vs simulated)
+### 6) First-token evaluation harness (reference vs simulated)
 
 ```bash
 python3 -m python.eval_first_token --prepare
@@ -123,7 +132,7 @@ python3 -m python.eval_first_token --prepare
 
 This gives you a prompt-set match rate so improvements can be measured over time.
 
-### 6) Prompt-set variation check (interactive quality)
+### 7) Prompt-set variation check (interactive quality)
 
 ```bash
 python3 -m python.eval_prompt_variation

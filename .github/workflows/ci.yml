@@ -104,3 +104,15 @@ jobs:
       - name: Lint SystemVerilog
         run: |
           find rtl -name "*.sv" -exec verible-verilog-lint {} \;
+
+      - name: Generate Verilator warning summary
+        run: make lint-summary
+
+      - name: Upload warning summary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: verilator-warning-summary
+          path: |
+            benchmarks/results/verilator_warning_summary.csv
+            benchmarks/results/verilator_warnings.txt
+          retention-days: 14

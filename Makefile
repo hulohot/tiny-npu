@@ -93,6 +93,11 @@ distclean: clean
 benchmark-deterministic: build
 	@bash scripts/benchmark_deterministic.sh
 
+# First-token evaluation harness (reference vs simulated)
+.PHONY: eval-first-token
+eval-first-token:
+	@python3 -m python.eval_first_token --prepare
+
 # Generate GPT-2 weights for inference demo
 .PHONY: weights
 weights:
@@ -148,6 +153,7 @@ help:
 	@echo ""
 	@echo "  Inference:"
 	@echo "    make benchmark-deterministic - Run deterministic benchmark harness"
+	@echo "    make eval-first-token - Evaluate first-token reference vs simulated match rate"
 	@echo "    make weights        - Export and quantize GPT-2 weights"
 	@echo "    make infer          - Run inference demo with default prompt"
 	@echo "    make infer-prompt PROMPT=\"...\" - Run with custom prompt"

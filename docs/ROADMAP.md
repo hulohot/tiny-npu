@@ -20,20 +20,15 @@ Prioritized issue queue (quality drive).
 11. #11 Tooling: add `make lint-verilator` target with warning summary report
 12. #12 Process: add PR checklist for CI checks, deterministic baseline, and docs updates
 
-## Milestone #15 progress snapshot (2026-02-26)
+## Milestone #15 progress snapshot (2026-02-26, refreshed)
 
 Milestone issue: #15 (RTL reliability + verification depth)
 
-- ✅ Completed/closed prerequisites: #4, #6, #10
-- 🔄 In-flight follow-up PRs tied to milestone quality hardening:
-  - #31 (issue #7): deterministic repeatability checks (N runs + hash compare)
-  - #32 (issue #11): warning summary report target + CI artifact
-  - #33 (issue #5): FSM case/default coverage guard target
-  - #34 (issue #3): immutable SHA action pinning
-  - #35 (issue #2): nightly scheduled regression + artifact retention
-  - #36 (issue #25): interactive prompt-variation harness
+- ✅ Core prerequisites completed: #4, #6, #10
+- ✅ Follow-up hardening completed: #2, #3, #5, #7, #11, #25
+- ✅ CI gates active and green on main (`stable-regression`, `full-ctest`, `lint`)
 
-Milestone remains **open** until these PRs are merged and CI is green on `main`.
+At this point, milestone #15 criteria are satisfied and the issue can be closed after this roadmap update is merged.
 
 ## Working agreement
 - Keep PRs scoped (1–3 related issues each).

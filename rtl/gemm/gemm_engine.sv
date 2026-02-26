@@ -61,8 +61,11 @@ module gemm_engine #(
     state_t state, next_state;
     
     // Tile counters
-    logic [$clog2(65536/ARRAY_SIZE):0] tile_m, tile_n, tile_k;
-    logic [$clog2(65536/ARRAY_SIZE):0] tiles_m, tiles_n, tiles_k;
+    localparam int TILE_COUNT_W = $clog2(65536/ARRAY_SIZE) + 1;
+    localparam int TILE_SIZE_W  = $clog2(ARRAY_SIZE) + 1;
+
+    logic [TILE_COUNT_W-1:0] tile_m, tile_n, tile_k;
+    logic [TILE_COUNT_W-1:0] tiles_m, tiles_n, tiles_k;
     
     // Current tile addresses
     logic [SRAM_ADDR_WIDTH-1:0] tile_a_addr;
@@ -70,7 +73,12 @@ module gemm_engine #(
     logic [SRAM_ADDR_WIDTH-1:0] tile_c_addr;
     
     // Tile size (may be smaller at edges)
-    logic [$clog2(ARRAY_SIZE):0] tile_size_m, tile_size_n, tile_size_k;
+    logic [TILE_SIZE_W-1:0] tile_size_m, tile_size_n, tile_size_k;
+
+    // Explicitly sized intermediates for width-safe tile math
+    logic [16:0] dim_m_ext, dim_n_ext, dim_k_ext;
+    logic [16:0] array_size_ext;
+    logic [15:0] compute_limit;
     
     // Systolic array interface
     logic                      array_start;
@@ -111,15 +119,15 @@ module gemm_engine #(
                 NEXT_TILE: begin
                     compute_cycles <= '0;
                     // Advance tile counters
-                    if (tile_k < tiles_k - 1) begin
+                    if (tile_k < (tiles_k - TILE_COUNT_W'(1))) begin
                         tile_k <= tile_k + 1;
                     end else begin
                         tile_k <= '0;
-                        if (tile_n < tiles_n - 1) begin
+                        if (tile_n < (tiles_n - TILE_COUNT_W'(1))) begin
                             tile_n <= tile_n + 1;
                         end else begin
                             tile_n <= '0;
-                            if (tile_m < tiles_m - 1) begin
+                            if (tile_m < (tiles_m - TILE_COUNT_W'(1))) begin
                                 tile_m <= tile_m + 1;
                             end
                         end
@@ -132,17 +140,24 @@ module gemm_engine #(
     end
     
     // Calculate number of tiles needed
-    assign tiles_m = $bits(tiles_m)'(((17'(dim_m) + 17'(ARRAY_SIZE) - 17'd1) / 17'(ARRAY_SIZE)));
-    assign tiles_n = $bits(tiles_n)'(((17'(dim_n) + 17'(ARRAY_SIZE) - 17'd1) / 17'(ARRAY_SIZE)));
-    assign tiles_k = $bits(tiles_k)'(((17'(dim_k) + 17'(ARRAY_SIZE) - 17'd1) / 17'(ARRAY_SIZE)));
+    assign dim_m_ext = {1'b0, dim_m};
+    assign dim_n_ext = {1'b0, dim_n};
+    assign dim_k_ext = {1'b0, dim_k};
+    assign array_size_ext = 17'(ARRAY_SIZE);
+
+    assign tiles_m = TILE_COUNT_W'((dim_m_ext + array_size_ext - 17'd1) / array_size_ext);
+    assign tiles_n = TILE_COUNT_W'((dim_n_ext + array_size_ext - 17'd1) / array_size_ext);
+    assign tiles_k = TILE_COUNT_W'((dim_k_ext + array_size_ext - 17'd1) / array_size_ext);
     
     // Current tile sizes (handle edge cases)
-    assign tile_size_m = (tile_m == tiles_m - 1 && dim_m % ARRAY_SIZE != 0) ? 
-                         5'(dim_m % ARRAY_SIZE) : 5'(ARRAY_SIZE);
-    assign tile_size_n = (tile_n == tiles_n - 1 && dim_n % ARRAY_SIZE != 0) ? 
-                         5'(dim_n % ARRAY_SIZE) : 5'(ARRAY_SIZE);
-    assign tile_size_k = (tile_k == tiles_k - 1 && dim_k % ARRAY_SIZE != 0) ? 
-                         5'(dim_k % ARRAY_SIZE) : 5'(ARRAY_SIZE);
+    assign tile_size_m = (tile_m == (tiles_m - TILE_COUNT_W'(1)) && dim_m % ARRAY_SIZE != 0) ? 
+                         TILE_SIZE_W'(dim_m % ARRAY_SIZE) : TILE_SIZE_W'(ARRAY_SIZE);
+    assign tile_size_n = (tile_n == (tiles_n - TILE_COUNT_W'(1)) && dim_n % ARRAY_SIZE != 0) ? 
+                         TILE_SIZE_W'(dim_n % ARRAY_SIZE) : TILE_SIZE_W'(ARRAY_SIZE);
+    assign tile_size_k = (tile_k == (tiles_k - TILE_COUNT_W'(1)) && dim_k % ARRAY_SIZE != 0) ? 
+                         TILE_SIZE_W'(dim_k % ARRAY_SIZE) : TILE_SIZE_W'(ARRAY_SIZE);
+
+    assign compute_limit = 16'(tile_size_m) + 16'(tile_size_k) + 16'(tile_size_n) + 16'd4;
     
     // State machine combinational logic
     always_comb begin
@@ -165,8 +180,8 @@ module gemm_engine #(
             
             COMPUTE_TILE: begin
                 // Computation takes tile_size_m + tile_size_k + tile_size_n cycles
-                if (compute_cycles >= 16'(tile_size_m) + 16'(tile_size_k) + 16'(tile_size_n) + 16'd4) begin
-                    if (tile_k < tiles_k - 1) begin
+                if (compute_cycles >= compute_limit) begin
+                    if (tile_k < (tiles_k - TILE_COUNT_W'(1))) begin
                         // More K tiles to accumulate
                         next_state = NEXT_TILE;
                     end else begin
@@ -183,7 +198,9 @@ module gemm_engine #(
             end
             
             NEXT_TILE: begin
-                if (tile_m == tiles_m - 1 && tile_n == tiles_n - 1 && tile_k == tiles_k - 1) begin
+                if (tile_m == (tiles_m - TILE_COUNT_W'(1)) &&
+                    tile_n == (tiles_n - TILE_COUNT_W'(1)) &&
+                    tile_k == (tiles_k - TILE_COUNT_W'(1))) begin
                     next_state = DONE_STATE;
                 end else begin
                     next_state = LOAD_WEIGHT_TILE;
@@ -234,13 +251,13 @@ module gemm_engine #(
     
     assign array_load_weights = 1'b0;
     assign array_weight_row = '0;
-    for (genvar i = 0; i < ARRAY_SIZE; i++) begin
+    for (genvar i = 0; i < ARRAY_SIZE; i++) begin : gen_array_weight_zero
         assign array_weight_in[i] = '0;
     end
     assign array_start = 1'b0;
     assign array_clear = 1'b0;
     assign array_act_valid = 1'b0;
-    for (genvar i = 0; i < ARRAY_SIZE; i++) begin
+    for (genvar i = 0; i < ARRAY_SIZE; i++) begin : gen_array_input_zero
         assign array_act_in[i] = '0;
         assign array_partial_in[i] = '0;
     end

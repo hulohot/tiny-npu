@@ -55,6 +55,47 @@ verilate(test_systolic_array
     VERILATOR_ARGS ${VERILATOR_COMMON_ARGS}
 )
 
+# Engine unit tests
+add_executable(test_softmax_engine
+    ${TESTBENCH_DIR}/softmax_engine_tb.cpp
+)
+verilate(test_softmax_engine
+    SOURCES ${ENGINES_DIR}/softmax_engine.sv
+    TOP_MODULE softmax_engine
+    PREFIX Vsoftmax_engine
+    VERILATOR_ARGS ${VERILATOR_COMMON_ARGS}
+)
+
+add_executable(test_layernorm_engine
+    ${TESTBENCH_DIR}/layernorm_engine_tb.cpp
+)
+verilate(test_layernorm_engine
+    SOURCES ${ENGINES_DIR}/layernorm_engine.sv
+    TOP_MODULE layernorm_engine
+    PREFIX Vlayernorm_engine
+    VERILATOR_ARGS ${VERILATOR_COMMON_ARGS}
+)
+
+add_executable(test_gelu_engine
+    ${TESTBENCH_DIR}/gelu_engine_tb.cpp
+)
+verilate(test_gelu_engine
+    SOURCES ${ENGINES_DIR}/gelu_engine.sv
+    TOP_MODULE gelu_engine
+    PREFIX Vgelu_engine
+    VERILATOR_ARGS ${VERILATOR_COMMON_ARGS}
+)
+
+add_executable(test_vec_engine
+    ${TESTBENCH_DIR}/vec_engine_tb.cpp
+)
+verilate(test_vec_engine
+    SOURCES ${ENGINES_DIR}/vec_engine.sv
+    TOP_MODULE vec_engine
+    PREFIX Vvec_engine
+    VERILATOR_ARGS ${VERILATOR_COMMON_ARGS}
+)
+
 # =============================================================================
 # TOP-LEVEL TESTS
 # =============================================================================
@@ -138,6 +179,10 @@ add_dependencies(test_gpt2_block sram_init)
 enable_testing()
 add_test(NAME MAC_Unit COMMAND test_mac_unit)
 add_test(NAME Systolic_Array COMMAND test_systolic_array)
+add_test(NAME Softmax_Engine COMMAND test_softmax_engine)
+add_test(NAME LayerNorm_Engine COMMAND test_layernorm_engine)
+add_test(NAME GELU_Engine COMMAND test_gelu_engine)
+add_test(NAME Vec_Engine COMMAND test_vec_engine)
 add_test(NAME NPU_Smoke COMMAND test_npu_smoke)
 add_test(NAME Integration COMMAND test_integration)
 add_test(NAME GPT2_Block COMMAND test_gpt2_block)

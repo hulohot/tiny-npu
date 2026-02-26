@@ -132,6 +132,11 @@ lint:
 check-fsm-case:
 	@bash scripts/check_fsm_case_coverage.sh
 
+# Warning summary report
+.PHONY: lint-summary
+lint-summary:
+	@bash scripts/lint_warning_summary.sh
+
 # Help
 .PHONY: help
 help:
@@ -169,4 +174,5 @@ help:
 	@echo "    make format         - Format SystemVerilog code"
 	@echo "    make lint           - Lint RTL with Verilator"
 	@echo "    make check-fsm-case - Fail on CASEINCOMPLETE/CASEOVERLAP warnings"
+	@echo "    make lint-summary   - Produce warning-class summary CSV"
 	@echo "    make help           - Show this help"

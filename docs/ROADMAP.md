@@ -20,6 +20,16 @@ Prioritized issue queue (quality drive).
 11. #11 Tooling: add `make lint-verilator` target with warning summary report
 12. #12 Process: add PR checklist for CI checks, deterministic baseline, and docs updates
 
+## Milestone #15 progress snapshot (2026-02-26, refreshed)
+
+Milestone issue: #15 (RTL reliability + verification depth)
+
+- ✅ Core prerequisites completed: #4, #6, #10
+- ✅ Follow-up hardening completed: #2, #3, #5, #7, #11, #25
+- ✅ CI gates active and green on main (`stable-regression`, `full-ctest`, `lint`)
+
+At this point, milestone #15 criteria are satisfied and the issue can be closed after this roadmap update is merged.
+
 ## Working agreement
 - Keep PRs scoped (1–3 related issues each).
 - Keep `stable-regression`, `full-ctest`, and `lint` green before merge.

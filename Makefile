@@ -127,6 +127,11 @@ format:
 lint:
 	@verilator --lint-only -Wall rtl/npu_top.sv 2>/dev/null || true
 
+# Warning summary report
+.PHONY: lint-summary
+lint-summary:
+	@bash scripts/lint_warning_summary.sh
+
 # Help
 .PHONY: help
 help:
@@ -163,4 +168,5 @@ help:
 	@echo "    make distclean      - Remove all generated files"
 	@echo "    make format         - Format SystemVerilog code"
 	@echo "    make lint           - Lint RTL with Verilator"
+	@echo "    make lint-summary   - Produce warning-class summary CSV"
 	@echo "    make help           - Show this help"

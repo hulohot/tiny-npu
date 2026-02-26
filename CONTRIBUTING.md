@@ -33,6 +33,16 @@ PRs into `main` are expected to pass:
 
 Branch protection setup: `docs/CI_BRANCH_PROTECTION.md`
 
+## Action pin maintenance
+
+This repo pins third-party GitHub Actions to immutable commit SHAs.
+
+When updating pinned actions:
+1. Resolve the desired release tag to a commit SHA.
+   - Example: `git ls-remote https://github.com/actions/checkout.git refs/tags/v4.2.2`
+2. Update workflow `uses:` refs to the SHA and keep a trailing comment with the human-readable tag.
+3. Re-run CI and include the exact pin updates in your PR summary.
+
 ## Coding guidelines
 
 - Keep modules synthesizable unless explicitly test-only.

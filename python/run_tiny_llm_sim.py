@@ -111,7 +111,12 @@ def _run_reference_generation(
     top_p: float,
     repetition_penalty: float,
     seed: int,
-) -> tuple[list[int], str, np.ndarray, list[int]]:
+) -> tuple[list[int], str, np.ndarray, list[int], list[np.ndarray]]:
+    """Reference generation via full HF model.
+
+    Returns generated tokens, text, first hidden state, prompt token IDs,
+    and a list of hidden states (one per generated token position).
+    """
     inputs = tokenizer(prompt, return_tensors="pt")
     input_ids = inputs["input_ids"]
     seen_ids = input_ids[0].tolist()
@@ -119,14 +124,17 @@ def _run_reference_generation(
 
     generated: list[int] = []
     first_hidden: np.ndarray | None = None
+    hidden_states_list: list[np.ndarray] = []
 
     for _ in range(max_new_tokens):
         with torch.no_grad():
             out = model(input_ids=input_ids, output_hidden_states=True, return_dict=True)
 
         logits = out.logits[0, -1, :].detach().cpu().numpy()
+        last_hidden = out.hidden_states[-1][0, -1, :].detach().cpu().numpy()
+        hidden_states_list.append(last_hidden)
         if first_hidden is None:
-            first_hidden = out.hidden_states[-1][0, -1, :].detach().cpu().numpy()
+            first_hidden = last_hidden
 
         adjusted = _apply_repetition_penalty(logits, seen_ids + generated, repetition_penalty)
         next_id = _sample_from_logits(
@@ -142,7 +150,7 @@ def _run_reference_generation(
         input_ids = torch.cat([input_ids, next_tok], dim=1)
 
     text = tokenizer.decode(generated, clean_up_tokenization_spaces=False)
-    return generated, text, first_hidden, seen_ids
+    return generated, text, first_hidden, seen_ids, hidden_states_list
 
 
 def _run_simulated_generation(
@@ -157,12 +165,16 @@ def _run_simulated_generation(
     top_p: float,
     repetition_penalty: float,
     seed: int,
+    hidden_states: list[np.ndarray] | None = None,
 ) -> tuple[list[int], str, list[int]]:
-    """Multi-token simulated decode.
+    """Multi-token simulated decode using hybrid approach.
 
-    Important: this is still *not* RTL/full-hardware decode. Hidden states are
-    produced by the full HF model each step; only output projection + decoding
-    policy are simulated in numpy.
+    Option C (hybrid simulated decode):
+    - Token 0: INT8 projection from initial hidden state (original behavior)
+    - Tokens 2+: Use cached reference hidden states from prior HF forward steps
+
+    If hidden_states is provided, uses cached states for tokens 1+.
+    Otherwise, falls back to computing hidden states via full HF model each step.
     """
     inputs = tokenizer(prompt, return_tensors="pt")
     input_ids = inputs["input_ids"]
@@ -170,11 +182,15 @@ def _run_simulated_generation(
     rng = np.random.default_rng(seed)
 
     generated: list[int] = []
-    for _ in range(max_new_tokens):
-        with torch.no_grad():
-            out = model(input_ids=input_ids, output_hidden_states=True, return_dict=True)
+    for i in range(max_new_tokens):
+        # Use cached hidden state if available (tokens 1+), otherwise compute
+        if hidden_states is not None and i < len(hidden_states):
+            last_hidden = hidden_states[i]
+        else:
+            with torch.no_grad():
+                out = model(input_ids=input_ids, output_hidden_states=True, return_dict=True)
+            last_hidden = out.hidden_states[-1][0, -1, :].detach().cpu().numpy()
 
-        last_hidden = out.hidden_states[-1][0, -1, :].detach().cpu().numpy()
         sim_logits = _sim_logits_from_hidden(last_hidden, lm_head_w)
         adjusted = _apply_repetition_penalty(sim_logits, seen_ids + generated, repetition_penalty)
         next_id = _sample_from_logits(
@@ -236,7 +252,7 @@ def run_demo(
     model = AutoModelForCausalLM.from_pretrained(model_name)
     model.eval()
 
-    gen_ids, gen_text, _first_hidden, prompt_token_ids = _run_reference_generation(
+    gen_ids, gen_text, _first_hidden, prompt_token_ids, ref_hidden_states = _run_reference_generation(
         model=model,
         tokenizer=tokenizer,
         torch=torch,
@@ -250,6 +266,7 @@ def run_demo(
     )
 
     # Simulated path (INT8 projection from real hidden state + real lm_head)
+    # Use cached reference hidden states for hybrid simulated decode
     lm_head = np.load(datadir / "lm_head.npy")
     sim_gen_ids, sim_gen_text, sim_prompt_token_ids = _run_simulated_generation(
         model=model,
@@ -263,6 +280,7 @@ def run_demo(
         top_p=sim_top_p,
         repetition_penalty=sim_repetition_penalty,
         seed=sim_seed,
+        hidden_states=ref_hidden_states,
     )
 
     # Backward-compatible first-token fields
@@ -307,7 +325,8 @@ def run_demo(
             "generated_token_ids": [int(x) for x in sim_gen_ids],
             "generated_text": sim_gen_text,
             "note": (
-                "INT8 simulated projection decode using HF hidden states at each step; "
+                "Hybrid simulated decode using reference hidden states with INT8 projection; "
+                "token 0 uses initial hidden state, tokens 2+ use cached reference hidden states; "
                 "this is a software approximation and not full RTL/hardware autoregressive execution"
             ),
         },

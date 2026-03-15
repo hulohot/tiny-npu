@@ -226,7 +226,8 @@ module layernorm_engine #(
             end
             
             DONE_STATE: begin
-                next_state = IDLE;
+                // Stay in DONE_STATE until all hidden_dim outputs have been drained.
+                if (out_idx >= hidden_dim) next_state = IDLE;
             end
 
             default: begin

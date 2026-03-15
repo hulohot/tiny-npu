@@ -14,7 +14,15 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 from pathlib import Path
+
+# Ensure repo root is on sys.path when this script is run directly
+# (e.g. `python3 python/run_tiny_llm_sim.py`), so that
+# `from python.tools.*` imports resolve correctly.
+_repo_root = Path(__file__).resolve().parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
 
 import numpy as np
 

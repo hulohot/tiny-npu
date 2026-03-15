@@ -57,12 +57,18 @@ module softmax_engine #(
     // Current processing state
     logic [$clog2(MAX_SEQ_LEN)-1:0] current_row;
     logic [$clog2(MAX_SEQ_LEN)-1:0] current_col;
-    
-    // Pass 2: Exp computation
-    logic [EXP_WIDTH-1:0] exp_result;             // exp(diff)
-    
-    // Pass 3: Normalization
-    logic [EXP_WIDTH+16-1:0] norm_result;         // exp / sum
+
+    // Output drain counters (used in DONE_STATE to walk result_buffer)
+    logic [$clog2(MAX_SEQ_LEN)-1:0] drain_row;
+    logic [$clog2(MAX_SEQ_LEN)-1:0] drain_col;
+
+    // Combinational exp lookup for the current (row, col) — eliminates pipeline stale
+    // in PASS2 accumulation and PASS3 normalization.
+    logic [7:0]          exp_idx_comb;
+    logic [EXP_WIDTH-1:0] exp_val_comb;
+    assign exp_idx_comb = 8'($signed(input_buffer[current_row][current_col]) -
+                              $signed(max_per_row[current_row]));
+    assign exp_val_comb = exp_lut[exp_idx_comb];
     
     // Exp LUT: maps signed 8-bit difference to exp value
     // Precomputed: exp(x) for x in range [-8, 0] scaled to fit in EXP_WIDTH
@@ -94,30 +100,30 @@ module softmax_engine #(
             state <= IDLE;
             current_row <= '0;
             current_col <= '0;
+            drain_row <= '0;
+            drain_col <= '0;
         end else begin
             state <= next_state;
-            
+
             case (state)
                 IDLE: begin
                     current_row <= '0;
                     current_col <= '0;
+                    drain_row <= '0;
+                    drain_col <= '0;
                     if (start) begin
-                        // Initialize max values to minimum
                         for (int i = 0; i < MAX_SEQ_LEN; i++) begin
                             max_per_row[i] <= 8'h80;  // -128
                             sum_per_row[i] <= '0;
                         end
                     end
                 end
-                
+
                 PASS1_MAX: begin
-                    // Find max for each row
                     if (current_row < seq_len) begin
                         if (current_col < seq_len) begin
-                            // Check if this element is greater than current max
-                            // Apply causal mask if enabled
                             if (!causal_mask || current_col <= current_row) begin
-                                if ($signed(input_buffer[current_row][current_col]) > 
+                                if ($signed(input_buffer[current_row][current_col]) >
                                     $signed(max_per_row[current_row])) begin
                                     max_per_row[current_row] <= input_buffer[current_row][current_col];
                                 end
@@ -127,51 +133,76 @@ module softmax_engine #(
                             current_col <= '0;
                             current_row <= current_row + 1;
                         end
+                    end else begin
+                        // Pass complete: reset counters for next pass.
+                        current_row <= '0;
+                        current_col <= '0;
                     end
                 end
-                
+
                 PASS2_EXP_SUM: begin
-                    // Compute exp and sum for each row
                     if (current_row < seq_len) begin
                         if (current_col < seq_len) begin
                             if (!causal_mask || current_col <= current_row) begin
-                                // Lookup exp
-                                // Convert signed diff to unsigned index
-                                exp_result <= exp_lut[$signed(input_buffer[current_row][current_col]) - 
-                                                        $signed(max_per_row[current_row])];
-                                
-                                // Accumulate sum (pipelined)
-                                sum_per_row[current_row] <= sum_per_row[current_row] + SUM_WIDTH'(exp_result);
+                                // Use combinational exp lookup to avoid 1-cycle pipeline stale
+                                // that previously caused cross-row sum corruption.
+                                sum_per_row[current_row] <= sum_per_row[current_row] +
+                                                            SUM_WIDTH'(exp_val_comb);
                             end
                             current_col <= current_col + 1;
                         end else begin
                             current_col <= '0;
                             current_row <= current_row + 1;
                         end
+                    end else begin
+                        // Pass complete: reset counters for next pass.
+                        current_row <= '0;
+                        current_col <= '0;
                     end
                 end
-                
+
                 PASS3_NORM: begin
-                    // Normalize: exp / sum
                     if (current_row < seq_len) begin
                         if (current_col < seq_len) begin
                             if (!causal_mask || current_col <= current_row) begin
-                                // Multiply by reciprocal of sum
-                                // result = exp * (1/sum) * 127 (to get back to INT8 range)
-                                norm_result <= (exp_result * 16'h7FFF) / sum_per_row[current_row];
-                                result_buffer[current_row][current_col] <= 
-                                    norm_result > 127 ? 8'd127 : norm_result[7:0];
+                                // Use combinational exp lookup and inline normalization
+                                // to avoid the 2-cycle pipeline stale (exp_result + norm_result).
+                                if (sum_per_row[current_row] != 0) begin
+                                    logic [EXP_WIDTH+16-1:0] norm_comb;
+                                    norm_comb = (SUM_WIDTH'(exp_val_comb) * 32'h0000_007F) /
+                                                sum_per_row[current_row];
+                                    result_buffer[current_row][current_col] <=
+                                        norm_comb > 127 ? 8'd127 : norm_comb[7:0];
+                                end else begin
+                                    result_buffer[current_row][current_col] <= 8'd0;
+                                end
                             end else begin
-                                result_buffer[current_row][current_col] <= 8'd0;  // Masked
+                                result_buffer[current_row][current_col] <= 8'd0;  // Causal mask
                             end
                             current_col <= current_col + 1;
                         end else begin
                             current_col <= '0;
                             current_row <= current_row + 1;
                         end
+                    end else begin
+                        // Pass complete: reset counters for drain phase.
+                        current_row <= '0;
+                        current_col <= '0;
                     end
                 end
-                
+
+                DONE_STATE: begin
+                    // Walk drain_row/drain_col through result_buffer.
+                    if (drain_row < seq_len) begin
+                        if (drain_col < seq_len - 1) begin
+                            drain_col <= drain_col + 1;
+                        end else begin
+                            drain_col <= '0;
+                            drain_row <= drain_row + 1;
+                        end
+                    end
+                end
+
                 default: begin
                     current_row <= '0;
                     current_col <= '0;
@@ -202,7 +233,8 @@ module softmax_engine #(
             end
             
             DONE_STATE: begin
-                next_state = IDLE;
+                // Stay until all seq_len×seq_len results have been drained.
+                if (drain_row >= seq_len) next_state = IDLE;
             end
 
             default: begin
@@ -214,18 +246,18 @@ module softmax_engine #(
     // Status
     assign busy = (state != IDLE);
     assign done = (state == DONE_STATE);
-    
+
     // Input capture
     always_ff @(posedge clk) begin
         if (data_valid) begin
             input_buffer[row_in][col_in] <= data_in;
         end
     end
-    
-    // Output generation
-    assign row_out = current_row;
-    assign col_out = current_col;
-    assign data_out = result_buffer[row_out][col_out];
-    assign out_valid = (state == DONE_STATE);
+
+    // Output generation: walk drain counters through result_buffer in DONE_STATE.
+    assign out_valid = (state == DONE_STATE) && (drain_row < seq_len);
+    assign row_out   = drain_row;
+    assign col_out   = drain_col;
+    assign data_out  = result_buffer[drain_row][drain_col];
 
 endmodule

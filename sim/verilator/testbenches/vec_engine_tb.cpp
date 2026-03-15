@@ -37,8 +37,12 @@ int main(int argc, char** argv) {
     tick(dut);
     dut->start = 0;
 
-    const int8_t a_vals[3] = {10, 20, 30};
-    const int8_t b_vals[3] = {1, 2, 3};
+    // VEC_ADD: [10,20,30] + [1,2,3] = [11,22,33] (all within INT8 range, no saturation).
+    // With the single-stage pipeline fix, data_out is computed in the same cycle as
+    // the input arrives, so outputs are captured correctly during the feed loop.
+    const int8_t a_vals[3]        = {10, 20, 30};
+    const int8_t b_vals[3]        = { 1,  2,  3};
+    const int8_t expected_vals[3] = {11, 22, 33};
     std::vector<int8_t> outs;
 
     for (int i = 0; i < 3; ++i) {
@@ -57,13 +61,12 @@ int main(int argc, char** argv) {
         if (dut->out_valid) outs.push_back(static_cast<int8_t>(dut->data_out));
     }
 
-    // Current implementation emits one valid pulse per accepted element.
     assert(outs.size() == 3 && "expected 3 output samples");
+    for (int i = 0; i < 3; ++i) {
+        assert(outs[i] == expected_vals[i] && "VEC_ADD output mismatch");
+    }
 
-    // Keep this test truthful to implemented behavior: current RTL emits valid pulses,
-    // but numerical values are pipeline-stale and should be covered by a future datapath fix.
-
-    std::cout << "vec_engine_tb: PASS (captured 3 samples; control-path behavior verified)" << std::endl;
+    std::cout << "vec_engine_tb: PASS" << std::endl;
 
     dut->final();
     delete dut;

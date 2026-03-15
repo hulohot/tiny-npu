@@ -127,25 +127,28 @@ module gelu_engine #(
                 end
                 
                 PROCESSING: begin
-                    // Input handling
+                    // Write path
                     if (data_valid && in_count < num_elements) begin
                         input_buffer[wr_ptr] <= data_in;
                         wr_ptr <= wr_ptr + 1;
-                        fifo_count <= fifo_count + 1;
                         in_count <= in_count + 1;
                     end
-                    
-                    // Output handling (LUT lookup)
+
+                    // Read path (LUT lookup)
                     if (fifo_count > 0 && out_count < num_elements) begin
-                        // Lookup in GELU table
                         result_reg <= gelu_lut[input_buffer[rd_ptr]];
                         result_valid_reg <= 1'b1;
                         rd_ptr <= rd_ptr + 1;
-                        fifo_count <= fifo_count - 1;
                         out_count <= out_count + 1;
                     end else begin
                         result_valid_reg <= 1'b0;
                     end
+
+                    // Combined FIFO count: compute net of simultaneous write and read
+                    // to avoid last-assignment-wins clobber when both fire in the same cycle.
+                    fifo_count <= fifo_count
+                                  + (3'(data_valid && in_count < num_elements))
+                                  - (3'(fifo_count > 0 && out_count < num_elements));
                 end
                 
                 DONE_STATE: begin

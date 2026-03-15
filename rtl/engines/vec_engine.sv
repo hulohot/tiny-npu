@@ -56,10 +56,6 @@ module vec_engine #(
     // Counters
     logic [$clog2(MAX_ELEMENTS)-1:0] element_count;
     
-    // Operation result
-    logic signed [DATA_WIDTH:0] op_result;  // Extra bit for overflow detection
-    logic [DATA_WIDTH-1:0] final_result;
-    
     // Saturation logic
     function automatic [DATA_WIDTH-1:0] saturate(input signed [DATA_WIDTH:0] val);
         if (val > 127) begin
@@ -105,53 +101,46 @@ module vec_engine #(
                 
                 PROCESSING: begin
                     if (data_a_valid && element_count < num_elements) begin
-                        // Perform operation based on opcode
+                        // Compute result directly into data_out in a single register stage.
+                        // The original 2-stage pipeline (op_result → final_result → data_out)
+                        // caused the last two outputs per burst to be silently dropped when the
+                        // FSM transitioned to DONE_STATE before the pipeline drained.
                         case (operation)
                             VEC_ADD: begin
-                                // Saturating addition
-                                op_result <= $signed(data_a_in) + $signed(data_b_in);
-                                final_result <= saturate(op_result);
+                                // Sign-extend to 9 bits before adding to detect overflow.
+                                data_out <= saturate(
+                                    $signed({data_a_in[DATA_WIDTH-1], data_a_in}) +
+                                    $signed({data_b_in[DATA_WIDTH-1], data_b_in}));
                             end
-                            
+
                             VEC_SUB: begin
-                                // Saturating subtraction
-                                op_result <= $signed(data_a_in) - $signed(data_b_in);
-                                final_result <= saturate(op_result);
+                                data_out <= saturate(
+                                    $signed({data_a_in[DATA_WIDTH-1], data_a_in}) -
+                                    $signed({data_b_in[DATA_WIDTH-1], data_b_in}));
                             end
-                            
+
                             VEC_MUL: begin
-                                // Q7.8 multiplication
-                                final_result <= qmul($signed(data_a_in), $signed(data_b_in));
+                                data_out <= qmul($signed(data_a_in), $signed(data_b_in));
                             end
-                            
+
                             VEC_SCALE: begin
-                                // Multiply by immediate
-                                final_result <= qmul($signed(data_a_in), $signed(immediate));
+                                data_out <= qmul($signed(data_a_in), $signed(immediate));
                             end
-                            
+
                             VEC_CLAMP: begin
-                                // Clamp to range [immediate, data_b_in]
-                                // immediate = min, data_b_in = max
-                                if ($signed(data_a_in) > $signed(data_b_in)) begin
-                                    final_result <= data_b_in;
-                                end else if ($signed(data_a_in) < $signed(immediate)) begin
-                                    final_result <= immediate;
-                                end else begin
-                                    final_result <= data_a_in;
-                                end
+                                if ($signed(data_a_in) > $signed(data_b_in))
+                                    data_out <= data_b_in;
+                                else if ($signed(data_a_in) < $signed(immediate))
+                                    data_out <= immediate;
+                                else
+                                    data_out <= data_a_in;
                             end
-                            
-                            VEC_COPY, VEC_COPY2D, VEC_NOP: begin
-                                // Passthrough
-                                final_result <= data_a_in;
-                            end
-                            
-                            default: begin
-                                final_result <= data_a_in;
+
+                            default: begin  // VEC_COPY, VEC_COPY2D, VEC_NOP
+                                data_out <= data_a_in;
                             end
                         endcase
-                        
-                        data_out <= final_result;
+
                         out_valid <= 1'b1;
                         element_count <= element_count + 1;
                     end

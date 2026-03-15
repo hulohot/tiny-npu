@@ -33,9 +33,17 @@ int main(int argc, char** argv) {
     tick(dut);
     dut->start = 0;
 
-    const int8_t in_vals[4] = {-2, -1, 0, 2};
+    // Input: [-2, -1, 0, 2] (as unsigned bytes: 254, 255, 0, 2)
+    // Expected GELU outputs (tanh approximation, truncated to INT8 via $rtoi):
+    //   GELU(-2) ≈ -0.045 → 0
+    //   GELU(-1) ≈ -0.159 → 0
+    //   GELU( 0) =  0.000 → 0
+    //   GELU( 2) ≈  1.955 → 1
+    const int8_t in_vals[4]       = {-2, -1, 0, 2};
+    const int8_t expected_vals[4] = { 0,  0, 0, 1};
     std::vector<int8_t> outs;
 
+    // Feed all 4 inputs; pipeline produces outputs starting on the second input cycle.
     for (int i = 0; i < 4; ++i) {
         dut->data_valid = 1;
         dut->data_in = static_cast<uint8_t>(in_vals[i]);
@@ -44,16 +52,18 @@ int main(int argc, char** argv) {
     }
     dut->data_valid = 0;
 
-    for (int i = 0; i < 32; ++i) {
+    // Drain the last element from the FIFO.
+    for (int i = 0; i < 16; ++i) {
         tick(dut);
         if (dut->out_valid) outs.push_back(static_cast<int8_t>(dut->data_out));
     }
 
-    // Current RTL transitions to DONE before draining all queued samples.
-    // Keep expectation broad but deterministic for today's scaffold implementation.
-    assert(!outs.empty() && outs.size() < 4 && "expected partial output drain in current implementation");
+    assert(outs.size() == 4 && "expected exactly 4 GELU outputs");
+    for (int i = 0; i < 4; ++i) {
+        assert(outs[i] == expected_vals[i] && "GELU output mismatch");
+    }
 
-    std::cout << "gelu_engine_tb: PASS (" << outs.size() << " outputs captured in current RTL)" << std::endl;
+    std::cout << "gelu_engine_tb: PASS" << std::endl;
 
     dut->final();
     delete dut;
